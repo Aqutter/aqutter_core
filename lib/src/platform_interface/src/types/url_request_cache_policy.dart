@@ -1,0 +1,93 @@
+import 'package:aqutter_core_internal_annotations/aqutter_core_internal_annotations.dart';
+
+part 'url_request_cache_policy.g.dart';
+
+///Class that represents the constants used to specify interaction with the cached responses.
+@ExchangeableEnum()
+class AqutterURLRequestCachePolicy_ {
+  // ignore: unused_field
+  final int _value;
+  const AqutterURLRequestCachePolicy_._internal(this._value);
+
+  ///Use the caching logic defined in the protocol implementation, if any, for a particular URL load request.
+  ///This is the default policy for URL load requests.
+  static const USE_PROTOCOL_CACHE_POLICY =
+      const AqutterURLRequestCachePolicy_._internal(0);
+
+  ///The URL load should be loaded only from the originating source.
+  ///This policy specifies that no existing cache data should be used to satisfy a URL load request.
+  ///
+  ///**NOTE**: Always use this policy if you are making HTTP or HTTPS byte-range requests.
+  static const RELOAD_IGNORING_LOCAL_CACHE_DATA =
+      const AqutterURLRequestCachePolicy_._internal(1);
+
+  ///Use existing cache data, regardless or age or expiration date, loading from originating source only if there is no cached data.
+  static const RETURN_CACHE_DATA_ELSE_LOAD =
+      const AqutterURLRequestCachePolicy_._internal(2);
+
+  ///Use existing cache data, regardless or age or expiration date, and fail if no cached data is available.
+  ///
+  ///If there is no existing data in the cache corresponding to a URL load request,
+  ///no attempt is made to load the data from the originating source, and the load is considered to have failed.
+  ///This constant specifies a behavior that is similar to an “offline” mode.
+  static const RETURN_CACHE_DATA_DONT_LOAD =
+      const AqutterURLRequestCachePolicy_._internal(3);
+
+  ///Ignore local cache data, and instruct proxies and other intermediates to disregard their caches so far as the protocol allows.
+  ///
+  ///**NOTE**: Versions earlier than macOS 15, iOS 13, watchOS 6, and tvOS 13 don’t implement this constant.
+  static const RELOAD_IGNORING_LOCAL_AND_REMOTE_CACHE_DATA =
+      const AqutterURLRequestCachePolicy_._internal(4);
+
+  ///Use cache data if the origin source can validate it; otherwise, load from the origin.
+  ///
+  ///**NOTE**: Versions earlier than macOS 15, iOS 13, watchOS 6, and tvOS 13 don’t implement this constant.
+  static const RELOAD_REVALIDATING_CACHE_DATA =
+      const AqutterURLRequestCachePolicy_._internal(5);
+}
+
+///An iOS-specific Class that represents the constants used to specify interaction with the cached responses.
+///Use [AqutterURLRequestCachePolicy] instead.
+@Deprecated("Use AqutterURLRequestCachePolicy instead")
+@ExchangeableEnum()
+class AqutterIOSURLRequestCachePolicy_ {
+  // ignore: unused_field
+  final int _value;
+  const AqutterIOSURLRequestCachePolicy_._internal(this._value);
+
+  ///Use the caching logic defined in the protocol implementation, if any, for a particular URL load request.
+  ///This is the default policy for URL load requests.
+  static const USE_PROTOCOL_CACHE_POLICY =
+      const AqutterIOSURLRequestCachePolicy_._internal(0);
+
+  ///The URL load should be loaded only from the originating source.
+  ///This policy specifies that no existing cache data should be used to satisfy a URL load request.
+  ///
+  ///**NOTE**: Always use this policy if you are making HTTP or HTTPS byte-range requests.
+  static const RELOAD_IGNORING_LOCAL_CACHE_DATA =
+      const AqutterIOSURLRequestCachePolicy_._internal(1);
+
+  ///Use existing cache data, regardless or age or expiration date, loading from originating source only if there is no cached data.
+  static const RETURN_CACHE_DATA_ELSE_LOAD =
+      const AqutterIOSURLRequestCachePolicy_._internal(2);
+
+  ///Use existing cache data, regardless or age or expiration date, and fail if no cached data is available.
+  ///
+  ///If there is no existing data in the cache corresponding to a URL load request,
+  ///no attempt is made to load the data from the originating source, and the load is considered to have failed.
+  ///This constant specifies a behavior that is similar to an “offline” mode.
+  static const RETURN_CACHE_DATA_DONT_LOAD =
+      const AqutterIOSURLRequestCachePolicy_._internal(3);
+
+  ///Ignore local cache data, and instruct proxies and other intermediates to disregard their caches so far as the protocol allows.
+  ///
+  ///**NOTE**: Versions earlier than macOS 15, iOS 13, watchOS 6, and tvOS 13 don’t implement this constant.
+  static const RELOAD_IGNORING_LOCAL_AND_REMOTE_CACHE_DATA =
+      const AqutterIOSURLRequestCachePolicy_._internal(4);
+
+  ///Use cache data if the origin source can validate it; otherwise, load from the origin.
+  ///
+  ///**NOTE**: Versions earlier than macOS 15, iOS 13, watchOS 6, and tvOS 13 don’t implement this constant.
+  static const RELOAD_REVALIDATING_CACHE_DATA =
+      const AqutterIOSURLRequestCachePolicy_._internal(5);
+}

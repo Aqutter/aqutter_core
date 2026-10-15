@@ -1,0 +1,32 @@
+import 'package:aqutter_core_internal_annotations/aqutter_core_internal_annotations.dart';
+
+import 'enum_method.dart';
+
+part 'find_options.g.dart';
+
+///Class that represents find options for find-on-page operations.
+@ExchangeableObject()
+class AqutterFindOptions_ {
+  ///The text to find.
+  String? findTerm;
+
+  ///Whether to match case.
+  bool? shouldMatchCase;
+
+  ///Whether to match whole word only.
+  bool? shouldMatchWord;
+
+  ///Whether to highlight all matches.
+  bool? shouldHighlightAllMatches;
+
+  ///Whether to suppress the default find dialog.
+  bool? suppressDefaultFindDialog;
+
+  AqutterFindOptions_({
+    this.findTerm,
+    this.shouldMatchCase,
+    this.shouldMatchWord,
+    this.shouldHighlightAllMatches,
+    this.suppressDefaultFindDialog,
+  });
+}

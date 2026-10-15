@@ -1,0 +1,29 @@
+{
+  "name": "aqutter_core",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": ".fvm/flutter_sdk/bin/flutter pub run build_runner build --delete-conflicting-outputs",
+    "build:windows": ".fvm\\flutter_sdk\\bin\\flutter.bat pub run build_runner build --delete-conflicting-outputs",
+    "watch": ".fvm/flutter_sdk/bin/flutter pub run build_runner watch --delete-conflicting-outputs",
+    "watch:windows": ".fvm\\flutter_sdk\\bin\\flutter.bat pub run build_runner watch --delete-conflicting-outputs",
+
+    "format": ".fvm/flutter_sdk/bin/dart format lib example/integration_test",
+    "format:windows": ".fvm\\flutter_sdk\\bin\\dart.bat format lib example/integration_test",
+
+    "docs:gen": ".fvm/flutter_sdk/bin/dart doc --output=doc/api .",
+    "docs:gen:windows": ".fvm\\flutter_sdk\\bin\\dart.bat doc --output=doc/api .",
+    "docs:serve": ".fvm/flutter_sdk/bin/flutter pub global activate dhttpd && .fvm/flutter_sdk/bin/flutter pub global run dhttpd:dhttpd --path doc/api",
+    "docs:serve:windows": ".fvm\\flutter_sdk\\bin\\flutter.bat pub global activate dhttpd && .fvm\\flutter_sdk\\bin\\flutter.bat pub global run dhttpd:dhttpd --path doc/api"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aqutter/aqutter_core.git"
+  },
+  "author": "Lorenzo Pichilli",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Aqutter/aqutter_core/issues"
+  },
+  "homepage": "https://github.com/Aqutter/aqutter_core#README.md"
+}

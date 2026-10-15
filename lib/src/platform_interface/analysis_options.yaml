@@ -1,0 +1,9 @@
+include: ../../../analysis_options.yaml
+
+analyzer:
+  errors:
+    # 這個範圍含 build_runner 產生的 *.g.dart，產生碼會觸發下列規則，故只在此範圍放寬，不影響其他程式碼
+    unnecessary_non_null_assertion: ignore
+    unused_element: ignore
+    unused_element_parameter: ignore
+    dead_null_aware_expression: ignore

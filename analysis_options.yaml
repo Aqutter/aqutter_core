@@ -1,0 +1,23 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    constant_identifier_names: ignore
+    deprecated_member_use_from_same_package: ignore
+
+analyzer:
+  errors:
+    constant_identifier_names: ignore
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+    unnecessary_cast: ignore
+    unnecessary_import: ignore
+  # 原生平台目錄是 Java／Swift／C++，不屬於 Dart 分析範圍
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+    - web/**

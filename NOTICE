@@ -1,0 +1,17 @@
+aqutter_core
+
+本專案衍生自 flutter_inappwebview：
+  https://github.com/pichillilorenzo/flutter_inappwebview
+  Copyright 2023 Lorenzo Pichilli
+  依 Apache License, Version 2.0 授權（見 LICENSE）。
+
+直接來源：KNightING/flutter_inappwebview（tag 6.2.0-beta.3.6，commit 1883884f5），
+其內容為上游 master（commit 17527cae5，2026-08-11）加上 7 個 pubspec.yaml 的 path 依賴調整。
+
+相對於上述來源的主要變更：
+  - 將 flutter_inappwebview、flutter_inappwebview_platform_interface 與
+    android／ios／macos／windows／linux／web 六個平台實作，合併為單一 Flutter plugin 套件 aqutter_core。
+  - 套件名稱為 aqutter_core；Dart 公開 API、原生類別、channel 前綴、JS 全域名稱與 plugin 類別
+    皆採 Aqutter 命名（對照見 doc/dart-rename-map.md 與 doc/native-rename-map.md）。
+  - Android 原生端由 Java 改寫為 Kotlin。
+  - 各原生外掛的建置識別字（podspec、Swift Package、CMake 目標與 include 目錄）隨套件名稱調整。

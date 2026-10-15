@@ -1,0 +1,32 @@
+#ifndef AQUTTER_CORE_PLUGIN_JS_PROMPT_RESPONSE_H_
+#define AQUTTER_CORE_PLUGIN_JS_PROMPT_RESPONSE_H_
+
+#include <flutter_linux/flutter_linux.h>
+
+#include <optional>
+#include <string>
+
+namespace aqutter_core_plugin {
+
+/**
+ * Response action for JS prompt dialogs.
+ */
+enum class JsPromptResponseAction { CANCEL = 0, CONFIRM = 1 };
+
+/**
+ * Response to a JavaScript prompt() dialog.
+ */
+class JsPromptResponse {
+ public:
+  bool handledByClient;
+  JsPromptResponseAction action;
+  std::optional<std::string> value;
+
+  JsPromptResponse();
+  JsPromptResponse(FlValue* map);
+  ~JsPromptResponse() = default;
+};
+
+}  // namespace aqutter_core_plugin
+
+#endif  // AQUTTER_CORE_PLUGIN_JS_PROMPT_RESPONSE_H_

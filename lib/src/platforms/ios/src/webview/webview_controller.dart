@@ -1,0 +1,3182 @@
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:core';
+import 'dart:developer' as developer;
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+import 'package:aqutter_core/src/platform_interface/flutter_webview_platform_interface.dart';
+
+import '../browser/browser.dart';
+import '../print_job/main.dart';
+import '../web_message/main.dart';
+import '../web_storage/web_storage.dart';
+
+import '_static_channel.dart';
+import 'headless_webview.dart';
+
+/// Object specifying creation parameters for creating a [AqutterIOSWebViewControllerImpl].
+///
+/// When adding additional fields make sure they can be null or have a default
+/// value to avoid breaking changes. See [AqutterPlatformWebViewControllerCreationParams] for
+/// more information.
+@immutable
+class AqutterIOSWebViewControllerCreationParams
+    extends AqutterPlatformWebViewControllerCreationParams {
+  /// Creates a new [AqutterIOSWebViewControllerCreationParams] instance.
+  const AqutterIOSWebViewControllerCreationParams({
+    required super.id,
+    super.webviewParams,
+  });
+
+  /// Creates a [AqutterIOSWebViewControllerCreationParams] instance based on [AqutterPlatformWebViewControllerCreationParams].
+  factory AqutterIOSWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(
+    // Recommended placeholder to prevent being broken by platform interface.
+    // ignore: avoid_unused_constructor_parameters
+    AqutterPlatformWebViewControllerCreationParams params,
+  ) {
+    return AqutterIOSWebViewControllerCreationParams(
+      id: params.id,
+      webviewParams: params.webviewParams,
+    );
+  }
+}
+
+///Controls a WebView, such as an [AqutterWebView] widget instance, a [AqutterIOSHeadlessWebView] instance or [AqutterIOSBrowser] WebView instance.
+///
+///If you are using the [AqutterWebView] widget, an [AqutterWebViewController] instance can be obtained by setting the [AqutterWebView.onWebViewCreated]
+///callback. Instead, if you are using an [AqutterIOSBrowser] instance, you can get it through the [AqutterIOSBrowser.webViewController] attribute.
+class AqutterIOSWebViewControllerImpl extends AqutterPlatformWebViewController
+    with ChannelController {
+  static final MethodChannel _staticChannel = IN_APP_WEBVIEW_STATIC_CHANNEL;
+
+  // List of properties to be saved and restored for keep alive feature
+  Map<String, Function> _javaScriptHandlersMap = HashMap<String, Function>();
+  Map<AqutterUserScriptInjectionTime, List<AqutterUserScript>> _userScripts = {
+    AqutterUserScriptInjectionTime.AT_DOCUMENT_START: <AqutterUserScript>[],
+    AqutterUserScriptInjectionTime.AT_DOCUMENT_END: <AqutterUserScript>[],
+  };
+  Set<String> _webMessageListenerObjNames = Set();
+  Map<String, AqutterScriptHtmlTagAttributes> _injectedScriptsFromURL = {};
+  Set<IOSWebMessageChannel> _webMessageChannels = Set();
+  Set<IOSWebMessageListener> _webMessageListeners = Set();
+
+  // static map that contains the properties to be saved and restored for keep alive feature
+  static final Map<AqutterWebViewKeepAlive, AqutterWebViewControllerKeepAliveProps?>
+  _keepAliveMap = {};
+
+  AqutterIOSBrowser? _browser;
+
+  AqutterPlatformBrowserEvents? get _browserEventHandler =>
+      _browser?.eventHandler;
+
+  dynamic _controllerFromPlatform;
+
+  @override
+  late IOSWebStorage webStorage;
+
+  AqutterIOSWebViewControllerImpl(AqutterPlatformWebViewControllerCreationParams params)
+    : super.implementation(
+        params is AqutterIOSWebViewControllerCreationParams
+            ? params
+            : AqutterIOSWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(
+                params,
+              ),
+      ) {
+    channel = MethodChannel('com.github.aqutter/webview_$id');
+    handler = handleMethod;
+    initMethodCallHandler();
+
+    final initialUserScripts = webviewParams?.initialUserScripts;
+    if (initialUserScripts != null) {
+      for (final userScript in initialUserScripts) {
+        if (userScript.injectionTime ==
+            AqutterUserScriptInjectionTime.AT_DOCUMENT_START) {
+          this._userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_START]?.add(
+            userScript,
+          );
+        } else {
+          this._userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_END]?.add(
+            userScript,
+          );
+        }
+      }
+    }
+
+    this._init(params);
+  }
+
+  static final AqutterIOSWebViewControllerImpl _staticValue =
+      AqutterIOSWebViewControllerImpl(
+        AqutterIOSWebViewControllerCreationParams(id: null),
+      );
+
+  factory AqutterIOSWebViewControllerImpl.static() {
+    return _staticValue;
+  }
+
+  AqutterIOSWebViewControllerImpl.fromBrowser(
+    AqutterPlatformWebViewControllerCreationParams params,
+    MethodChannel channel,
+    AqutterIOSBrowser browser,
+    UnmodifiableListView<AqutterUserScript>? initialUserScripts,
+  ) : super.implementation(
+        params is AqutterIOSWebViewControllerCreationParams
+            ? params
+            : AqutterIOSWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(
+                params,
+              ),
+      ) {
+    this.channel = channel;
+    this._browser = browser;
+
+    if (initialUserScripts != null) {
+      for (final userScript in initialUserScripts) {
+        if (userScript.injectionTime ==
+            AqutterUserScriptInjectionTime.AT_DOCUMENT_START) {
+          this._userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_START]?.add(
+            userScript,
+          );
+        } else {
+          this._userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_END]?.add(
+            userScript,
+          );
+        }
+      }
+    }
+    this._init(params);
+  }
+
+  void _init(AqutterPlatformWebViewControllerCreationParams params) {
+    _controllerFromPlatform =
+        params.webviewParams?.controllerFromPlatform?.call(this) ?? this;
+
+    webStorage = IOSWebStorage(
+      IOSWebStorageCreationParams(
+        localStorage: IOSLocalStorage.defaultStorage(controller: this),
+        sessionStorage: IOSSessionStorage.defaultStorage(controller: this),
+      ),
+    );
+
+    if (params.webviewParams is AqutterPlatformWebViewWidgetCreationParams) {
+      final keepAlive =
+          (params.webviewParams as AqutterPlatformWebViewWidgetCreationParams)
+              .keepAlive;
+      if (keepAlive != null) {
+        AqutterWebViewControllerKeepAliveProps? props = _keepAliveMap[keepAlive];
+        if (props == null) {
+          // save controller properties to restore it later
+          _keepAliveMap[keepAlive] = AqutterWebViewControllerKeepAliveProps(
+            injectedScriptsFromURL: _injectedScriptsFromURL,
+            javaScriptHandlersMap: _javaScriptHandlersMap,
+            userScripts: _userScripts,
+            webMessageListenerObjNames: _webMessageListenerObjNames,
+            webMessageChannels: _webMessageChannels,
+            webMessageListeners: _webMessageListeners,
+          );
+        } else {
+          // restore controller properties
+          _injectedScriptsFromURL = props.injectedScriptsFromURL;
+          _javaScriptHandlersMap = props.javaScriptHandlersMap;
+          _userScripts = props.userScripts;
+          _webMessageListenerObjNames = props.webMessageListenerObjNames;
+          _webMessageChannels =
+              props.webMessageChannels as Set<IOSWebMessageChannel>;
+          _webMessageListeners =
+              props.webMessageListeners as Set<IOSWebMessageListener>;
+        }
+      }
+    }
+  }
+
+  _debugLog(String method, dynamic args) {
+    debugLog(
+      className: this.runtimeType.toString(),
+      name: _browser == null
+          ? "WebView"
+          : _browser.runtimeType.toString(),
+      id: (getViewId() ?? _browser?.id).toString(),
+      debugLoggingSettings: AqutterPlatformWebViewController.debugLoggingSettings,
+      method: method,
+      args: args,
+    );
+  }
+
+  Future<dynamic> _handleMethod(MethodCall call) async {
+    if (AqutterPlatformWebViewController.debugLoggingSettings.enabled &&
+        call.method != "onCallJsHandler") {
+      _debugLog(call.method, call.arguments);
+    }
+
+    switch (call.method) {
+      case "onLoadStart":
+        _injectedScriptsFromURL.clear();
+        if ((webviewParams != null && webviewParams!.onLoadStart != null) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+          if (webviewParams != null && webviewParams!.onLoadStart != null)
+            webviewParams!.onLoadStart!(_controllerFromPlatform, uri);
+          else
+            _browserEventHandler!.onLoadStart(uri);
+        }
+        break;
+      case "onLoadStop":
+        if ((webviewParams != null && webviewParams!.onLoadStop != null) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+          if (webviewParams != null && webviewParams!.onLoadStop != null)
+            webviewParams!.onLoadStop!(_controllerFromPlatform, uri);
+          else
+            _browserEventHandler!.onLoadStop(uri);
+        }
+        break;
+      case "onReceivedError":
+        if ((webviewParams != null &&
+                (webviewParams!.onReceivedError != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.onLoadError != null)) ||
+            _browserEventHandler != null) {
+          AqutterWebResourceRequest request = AqutterWebResourceRequest.fromMap(
+            call.arguments["request"].cast<String, dynamic>(),
+          )!;
+          AqutterWebResourceError error = AqutterWebResourceError.fromMap(
+            call.arguments["error"].cast<String, dynamic>(),
+          )!;
+          var isForMainFrame = request.isForMainFrame ?? false;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onReceivedError != null)
+              webviewParams!.onReceivedError!(
+                _controllerFromPlatform,
+                request,
+                error,
+              );
+            else if (isForMainFrame) {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.onLoadError!(
+                _controllerFromPlatform,
+                request.url,
+                error.type.toNativeValue() ?? -1,
+                error.description,
+              );
+            }
+          } else {
+            if (isForMainFrame) {
+              _browserEventHandler!.onLoadError(
+                request.url,
+                error.type.toNativeValue() ?? -1,
+                error.description,
+              );
+            }
+            _browserEventHandler!.onReceivedError(request, error);
+          }
+        }
+        break;
+      case "onReceivedHttpError":
+        if ((webviewParams != null &&
+                (webviewParams!.onReceivedHttpError != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.onLoadHttpError != null)) ||
+            _browserEventHandler != null) {
+          AqutterWebResourceRequest request = AqutterWebResourceRequest.fromMap(
+            call.arguments["request"].cast<String, dynamic>(),
+          )!;
+          AqutterWebResourceResponse errorResponse = AqutterWebResourceResponse.fromMap(
+            call.arguments["errorResponse"].cast<String, dynamic>(),
+          )!;
+          var isForMainFrame = request.isForMainFrame ?? false;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onReceivedHttpError != null)
+              webviewParams!.onReceivedHttpError!(
+                _controllerFromPlatform,
+                request,
+                errorResponse,
+              );
+            else if (isForMainFrame) {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.onLoadHttpError!(
+                _controllerFromPlatform,
+                request.url,
+                errorResponse.statusCode ?? -1,
+                errorResponse.reasonPhrase ?? '',
+              );
+            }
+          } else {
+            if (isForMainFrame) {
+              _browserEventHandler!.onLoadHttpError(
+                request.url,
+                errorResponse.statusCode ?? -1,
+                errorResponse.reasonPhrase ?? '',
+              );
+            }
+            _browserEventHandler!.onReceivedHttpError(
+              request,
+              errorResponse,
+            );
+          }
+        }
+        break;
+      case "onProgressChanged":
+        if ((webviewParams != null &&
+                webviewParams!.onProgressChanged != null) ||
+            _browserEventHandler != null) {
+          int progress = call.arguments["progress"];
+          if (webviewParams != null && webviewParams!.onProgressChanged != null)
+            webviewParams!.onProgressChanged!(
+              _controllerFromPlatform,
+              progress,
+            );
+          else
+            _browserEventHandler!.onProgressChanged(progress);
+        }
+        break;
+      case "shouldOverrideUrlLoading":
+        if ((webviewParams != null &&
+                webviewParams!.shouldOverrideUrlLoading != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterNavigationAction navigationAction = AqutterNavigationAction.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null &&
+              webviewParams!.shouldOverrideUrlLoading != null)
+            return (await webviewParams!.shouldOverrideUrlLoading!(
+              _controllerFromPlatform,
+              navigationAction,
+            ))?.toNativeValue();
+          return (await _browserEventHandler!.shouldOverrideUrlLoading(
+            navigationAction,
+          ))?.toNativeValue();
+        }
+        break;
+      case "onConsoleMessage":
+        if ((webviewParams != null &&
+                webviewParams!.onConsoleMessage != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterConsoleMessage consoleMessage = AqutterConsoleMessage.fromMap(arguments)!;
+          if (webviewParams != null && webviewParams!.onConsoleMessage != null)
+            webviewParams!.onConsoleMessage!(
+              _controllerFromPlatform,
+              consoleMessage,
+            );
+          else
+            _browserEventHandler!.onConsoleMessage(consoleMessage);
+        }
+        break;
+      case "onScrollChanged":
+        if ((webviewParams != null && webviewParams!.onScrollChanged != null) ||
+            _browserEventHandler != null) {
+          int x = call.arguments["x"];
+          int y = call.arguments["y"];
+          if (webviewParams != null && webviewParams!.onScrollChanged != null)
+            webviewParams!.onScrollChanged!(_controllerFromPlatform, x, y);
+          else
+            _browserEventHandler!.onScrollChanged(x, y);
+        }
+        break;
+      case "onDownloadStarting":
+        if ((webviewParams != null &&
+                (webviewParams!.onDownloadStart != null ||
+                    webviewParams!.onDownloadStartRequest != null ||
+                    webviewParams!.onDownloadStarting != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterDownloadStartRequest downloadStartRequest =
+              AqutterDownloadStartRequest.fromMap(arguments)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onDownloadStarting != null)
+              return (await webviewParams!.onDownloadStarting!(
+                _controllerFromPlatform,
+                downloadStartRequest,
+              ))?.toMap();
+            else if (webviewParams!.onDownloadStartRequest != null)
+              webviewParams!.onDownloadStartRequest!(
+                _controllerFromPlatform,
+                downloadStartRequest,
+              );
+            else {
+              webviewParams!.onDownloadStart!(
+                _controllerFromPlatform,
+                downloadStartRequest.url,
+              );
+            }
+          } else {
+            _browserEventHandler!.onDownloadStart(
+              downloadStartRequest.url,
+            );
+            _browserEventHandler!.onDownloadStartRequest(
+              downloadStartRequest,
+            );
+            return (await _browserEventHandler!.onDownloadStarting(
+              downloadStartRequest,
+            ))?.toMap();
+          }
+        }
+        break;
+      case "onLoadResourceWithCustomScheme":
+        if ((webviewParams != null &&
+                (webviewParams!.onLoadResourceWithCustomScheme != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.onLoadResourceCustomScheme != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> requestMap = call.arguments["request"]
+              .cast<String, dynamic>();
+          AqutterWebResourceRequest request = AqutterWebResourceRequest.fromMap(requestMap)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onLoadResourceWithCustomScheme != null)
+              return (await webviewParams!.onLoadResourceWithCustomScheme!(
+                _controllerFromPlatform,
+                request,
+              ))?.toMap();
+            else {
+              return (await params
+                      .webviewParams!
+                      // ignore: deprecated_member_use_from_same_package
+                      .onLoadResourceCustomScheme!(
+                    _controllerFromPlatform,
+                    request.url,
+                  ))
+                  ?.toMap();
+            }
+          } else {
+            return ((await _browserEventHandler!
+                        .onLoadResourceWithCustomScheme(request)) ??
+                    (await _browserEventHandler!
+                        .onLoadResourceCustomScheme(request.url)))
+                ?.toMap();
+          }
+        }
+        break;
+      case "onCreateWindow":
+        if ((webviewParams != null && webviewParams!.onCreateWindow != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterCreateWindowAction createWindowAction = AqutterCreateWindowAction.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null && webviewParams!.onCreateWindow != null)
+            return await webviewParams!.onCreateWindow!(
+              _controllerFromPlatform,
+              createWindowAction,
+            );
+          else
+            return await _browserEventHandler!.onCreateWindow(
+              createWindowAction,
+            );
+        }
+        break;
+      case "onCloseWindow":
+        if (webviewParams != null && webviewParams!.onCloseWindow != null)
+          webviewParams!.onCloseWindow!(_controllerFromPlatform);
+        else if (_browserEventHandler != null)
+          _browserEventHandler!.onCloseWindow();
+        break;
+      case "onTitleChanged":
+        if ((webviewParams != null && webviewParams!.onTitleChanged != null) ||
+            _browserEventHandler != null) {
+          String? title = call.arguments["title"];
+          if (webviewParams != null && webviewParams!.onTitleChanged != null)
+            webviewParams!.onTitleChanged!(_controllerFromPlatform, title);
+          else
+            _browserEventHandler!.onTitleChanged(title);
+        }
+        break;
+      case "onGeolocationPermissionsShowPrompt":
+        if ((webviewParams != null &&
+                (webviewParams!.onGeolocationPermissionsShowPrompt != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnGeolocationPermissionsShowPrompt !=
+                        null)) ||
+            _browserEventHandler != null) {
+          String origin = call.arguments["origin"];
+
+          if (webviewParams != null) {
+            if (webviewParams!.onGeolocationPermissionsShowPrompt != null)
+              return (await webviewParams!.onGeolocationPermissionsShowPrompt!(
+                _controllerFromPlatform,
+                origin,
+              ))?.toMap();
+            else {
+              return (await params
+                      .webviewParams!
+                      // ignore: deprecated_member_use_from_same_package
+                      .androidOnGeolocationPermissionsShowPrompt!(
+                    _controllerFromPlatform,
+                    origin,
+                  ))
+                  ?.toMap();
+            }
+          } else {
+            return ((await _browserEventHandler!
+                        .onGeolocationPermissionsShowPrompt(origin)) ??
+                    (await _browserEventHandler!
+                        .androidOnGeolocationPermissionsShowPrompt(origin)))
+                ?.toMap();
+          }
+        }
+        break;
+      case "onGeolocationPermissionsHidePrompt":
+        if (webviewParams != null &&
+            (webviewParams!.onGeolocationPermissionsHidePrompt != null ||
+                // ignore: deprecated_member_use_from_same_package
+                webviewParams!.androidOnGeolocationPermissionsHidePrompt !=
+                    null)) {
+          if (webviewParams!.onGeolocationPermissionsHidePrompt != null)
+            webviewParams!.onGeolocationPermissionsHidePrompt!(
+              _controllerFromPlatform,
+            );
+          else {
+            // ignore: deprecated_member_use_from_same_package
+            webviewParams!.androidOnGeolocationPermissionsHidePrompt!(
+              _controllerFromPlatform,
+            );
+          }
+        } else if (_browserEventHandler != null) {
+          _browserEventHandler!.onGeolocationPermissionsHidePrompt();
+          // ignore: deprecated_member_use_from_same_package
+          _browserEventHandler!
+              .androidOnGeolocationPermissionsHidePrompt();
+        }
+        break;
+      case "shouldInterceptRequest":
+        if ((webviewParams != null &&
+                (webviewParams!.shouldInterceptRequest != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidShouldInterceptRequest != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterWebResourceRequest request = AqutterWebResourceRequest.fromMap(arguments)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.shouldInterceptRequest != null)
+              return (await webviewParams!.shouldInterceptRequest!(
+                _controllerFromPlatform,
+                request,
+              ))?.toMap();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidShouldInterceptRequest!(
+                _controllerFromPlatform,
+                request,
+              ))?.toMap();
+            }
+          } else {
+            return ((await _browserEventHandler!.shouldInterceptRequest(
+                      request,
+                    )) ??
+                    (await _browserEventHandler!
+                        .androidShouldInterceptRequest(request)))
+                ?.toMap();
+          }
+        }
+        break;
+      case "onRenderProcessUnresponsive":
+        if ((webviewParams != null &&
+                (webviewParams!.onRenderProcessUnresponsive != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnRenderProcessUnresponsive !=
+                        null)) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onRenderProcessUnresponsive != null)
+              return (await webviewParams!.onRenderProcessUnresponsive!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidOnRenderProcessUnresponsive!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            }
+          } else {
+            return ((await _browserEventHandler!
+                        .onRenderProcessUnresponsive(uri)) ??
+                    (await _browserEventHandler!
+                        .androidOnRenderProcessUnresponsive(uri)))
+                ?.toNativeValue();
+          }
+        }
+        break;
+      case "onRenderProcessResponsive":
+        if ((webviewParams != null &&
+                (webviewParams!.onRenderProcessResponsive != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnRenderProcessResponsive != null)) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onRenderProcessResponsive != null)
+              return (await webviewParams!.onRenderProcessResponsive!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidOnRenderProcessResponsive!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            }
+          } else {
+            return ((await _browserEventHandler!.onRenderProcessResponsive(
+                      uri,
+                    )) ??
+                    (await _browserEventHandler!
+                        .androidOnRenderProcessResponsive(uri)))
+                ?.toNativeValue();
+          }
+        }
+        break;
+      case "onRenderProcessGone":
+        if ((webviewParams != null &&
+                (webviewParams!.onRenderProcessGone != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnRenderProcessGone != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterRenderProcessGoneDetail detail = AqutterRenderProcessGoneDetail.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onRenderProcessGone != null)
+              webviewParams!.onRenderProcessGone!(
+                _controllerFromPlatform,
+                detail,
+              );
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.androidOnRenderProcessGone!(
+                _controllerFromPlatform,
+                detail,
+              );
+            }
+          } else if (_browserEventHandler != null) {
+            _browserEventHandler!.onRenderProcessGone(detail);
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.androidOnRenderProcessGone(detail);
+          }
+        }
+        break;
+      case "onFormResubmission":
+        if ((webviewParams != null &&
+                (webviewParams!.onFormResubmission != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnFormResubmission != null)) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onFormResubmission != null)
+              return (await webviewParams!.onFormResubmission!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidOnFormResubmission!(
+                _controllerFromPlatform,
+                uri,
+              ))?.toNativeValue();
+            }
+          } else {
+            return ((await _browserEventHandler!.onFormResubmission(
+                      uri,
+                    )) ??
+                    // ignore: deprecated_member_use_from_same_package
+                    (await _browserEventHandler!.androidOnFormResubmission(
+                      uri,
+                    )))
+                ?.toNativeValue();
+          }
+        }
+        break;
+      case "onZoomScaleChanged":
+        if ((webviewParams != null &&
+                // ignore: deprecated_member_use_from_same_package
+                (webviewParams!.androidOnScaleChanged != null ||
+                    webviewParams!.onZoomScaleChanged != null)) ||
+            _browserEventHandler != null) {
+          double oldScale = call.arguments["oldScale"];
+          double newScale = call.arguments["newScale"];
+
+          if (webviewParams != null) {
+            if (webviewParams!.onZoomScaleChanged != null)
+              webviewParams!.onZoomScaleChanged!(
+                _controllerFromPlatform,
+                oldScale,
+                newScale,
+              );
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.androidOnScaleChanged!(
+                _controllerFromPlatform,
+                oldScale,
+                newScale,
+              );
+            }
+          } else {
+            _browserEventHandler!.onZoomScaleChanged(oldScale, newScale);
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.androidOnScaleChanged(
+              oldScale,
+              newScale,
+            );
+          }
+        }
+        break;
+      case "onReceivedIcon":
+        if ((webviewParams != null &&
+                (webviewParams!.onReceivedIcon != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnReceivedIcon != null)) ||
+            _browserEventHandler != null) {
+          Uint8List icon = Uint8List.fromList(
+            call.arguments["icon"].cast<int>(),
+          );
+
+          if (webviewParams != null) {
+            if (webviewParams!.onReceivedIcon != null)
+              webviewParams!.onReceivedIcon!(_controllerFromPlatform, icon);
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.androidOnReceivedIcon!(
+                _controllerFromPlatform,
+                icon,
+              );
+            }
+          } else {
+            _browserEventHandler!.onReceivedIcon(icon);
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.androidOnReceivedIcon(icon);
+          }
+        }
+        break;
+      case "onReceivedTouchIconUrl":
+        if ((webviewParams != null &&
+                (webviewParams!.onReceivedTouchIconUrl != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnReceivedTouchIconUrl != null)) ||
+            _browserEventHandler != null) {
+          String url = call.arguments["url"];
+          bool precomposed = call.arguments["precomposed"];
+          AqutterWebUri uri = AqutterWebUri(url);
+
+          if (webviewParams != null) {
+            if (webviewParams!.onReceivedTouchIconUrl != null)
+              webviewParams!.onReceivedTouchIconUrl!(
+                _controllerFromPlatform,
+                uri,
+                precomposed,
+              );
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.androidOnReceivedTouchIconUrl!(
+                _controllerFromPlatform,
+                uri,
+                precomposed,
+              );
+            }
+          } else {
+            _browserEventHandler!.onReceivedTouchIconUrl(uri, precomposed);
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.androidOnReceivedTouchIconUrl(
+              uri,
+              precomposed,
+            );
+          }
+        }
+        break;
+      case "onJsAlert":
+        if ((webviewParams != null && webviewParams!.onJsAlert != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterJsAlertRequest jsAlertRequest = AqutterJsAlertRequest.fromMap(arguments)!;
+
+          if (webviewParams != null && webviewParams!.onJsAlert != null)
+            return (await webviewParams!.onJsAlert!(
+              _controllerFromPlatform,
+              jsAlertRequest,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!.onJsAlert(
+              jsAlertRequest,
+            ))?.toMap();
+        }
+        break;
+      case "onJsConfirm":
+        if ((webviewParams != null && webviewParams!.onJsConfirm != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterJsConfirmRequest jsConfirmRequest = AqutterJsConfirmRequest.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null && webviewParams!.onJsConfirm != null)
+            return (await webviewParams!.onJsConfirm!(
+              _controllerFromPlatform,
+              jsConfirmRequest,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!.onJsConfirm(
+              jsConfirmRequest,
+            ))?.toMap();
+        }
+        break;
+      case "onJsPrompt":
+        if ((webviewParams != null && webviewParams!.onJsPrompt != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterJsPromptRequest jsPromptRequest = AqutterJsPromptRequest.fromMap(arguments)!;
+
+          if (webviewParams != null && webviewParams!.onJsPrompt != null)
+            return (await webviewParams!.onJsPrompt!(
+              _controllerFromPlatform,
+              jsPromptRequest,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!.onJsPrompt(
+              jsPromptRequest,
+            ))?.toMap();
+        }
+        break;
+      case "onJsBeforeUnload":
+        if ((webviewParams != null &&
+                (webviewParams!.onJsBeforeUnload != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnJsBeforeUnload != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterJsBeforeUnloadRequest jsBeforeUnloadRequest =
+              AqutterJsBeforeUnloadRequest.fromMap(arguments)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onJsBeforeUnload != null)
+              return (await webviewParams!.onJsBeforeUnload!(
+                _controllerFromPlatform,
+                jsBeforeUnloadRequest,
+              ))?.toMap();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidOnJsBeforeUnload!(
+                _controllerFromPlatform,
+                jsBeforeUnloadRequest,
+              ))?.toMap();
+            }
+          } else {
+            return ((await _browserEventHandler!.onJsBeforeUnload(
+                      jsBeforeUnloadRequest,
+                    )) ??
+                    (await _browserEventHandler!.androidOnJsBeforeUnload(
+                      jsBeforeUnloadRequest,
+                    )))
+                ?.toMap();
+          }
+        }
+        break;
+      case "onSafeBrowsingHit":
+        if ((webviewParams != null &&
+                (webviewParams!.onSafeBrowsingHit != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnSafeBrowsingHit != null)) ||
+            _browserEventHandler != null) {
+          String url = call.arguments["url"];
+          AqutterSafeBrowsingThreat? threatType = AqutterSafeBrowsingThreat.fromNativeValue(
+            call.arguments["threatType"],
+          );
+          AqutterWebUri uri = AqutterWebUri(url);
+
+          if (webviewParams != null) {
+            if (webviewParams!.onSafeBrowsingHit != null)
+              return (await webviewParams!.onSafeBrowsingHit!(
+                _controllerFromPlatform,
+                uri,
+                threatType,
+              ))?.toMap();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.androidOnSafeBrowsingHit!(
+                _controllerFromPlatform,
+                uri,
+                threatType,
+              ))?.toMap();
+            }
+          } else {
+            return ((await _browserEventHandler!.onSafeBrowsingHit(
+                      uri,
+                      threatType,
+                    )) ??
+                    (await _browserEventHandler!.androidOnSafeBrowsingHit(
+                      uri,
+                      threatType,
+                    )))
+                ?.toMap();
+          }
+        }
+        break;
+      case "onReceivedLoginRequest":
+        if ((webviewParams != null &&
+                (webviewParams!.onReceivedLoginRequest != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnReceivedLoginRequest != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterLoginRequest loginRequest = AqutterLoginRequest.fromMap(arguments)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onReceivedLoginRequest != null)
+              webviewParams!.onReceivedLoginRequest!(
+                _controllerFromPlatform,
+                loginRequest,
+              );
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.androidOnReceivedLoginRequest!(
+                _controllerFromPlatform,
+                loginRequest,
+              );
+            }
+          } else {
+            _browserEventHandler!.onReceivedLoginRequest(loginRequest);
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.androidOnReceivedLoginRequest(
+              loginRequest,
+            );
+          }
+        }
+        break;
+      case "onPermissionRequestCanceled":
+        if ((webviewParams != null &&
+                webviewParams!.onPermissionRequestCanceled != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterPermissionRequest permissionRequest = AqutterPermissionRequest.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null &&
+              webviewParams!.onPermissionRequestCanceled != null)
+            webviewParams!.onPermissionRequestCanceled!(
+              _controllerFromPlatform,
+              permissionRequest,
+            );
+          else
+            _browserEventHandler!.onPermissionRequestCanceled(
+              permissionRequest,
+            );
+        }
+        break;
+      case "onRequestFocus":
+        if ((webviewParams != null && webviewParams!.onRequestFocus != null) ||
+            _browserEventHandler != null) {
+          if (webviewParams != null && webviewParams!.onRequestFocus != null)
+            webviewParams!.onRequestFocus!(_controllerFromPlatform);
+          else
+            _browserEventHandler!.onRequestFocus();
+        }
+        break;
+      case "onReceivedHttpAuthRequest":
+        if ((webviewParams != null &&
+                webviewParams!.onReceivedHttpAuthRequest != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterHttpAuthenticationChallenge challenge =
+              AqutterHttpAuthenticationChallenge.fromMap(arguments)!;
+
+          if (webviewParams != null &&
+              webviewParams!.onReceivedHttpAuthRequest != null)
+            return (await webviewParams!.onReceivedHttpAuthRequest!(
+              _controllerFromPlatform,
+              challenge,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!.onReceivedHttpAuthRequest(
+              challenge,
+            ))?.toMap();
+        }
+        break;
+      case "onReceivedServerTrustAuthRequest":
+        if ((webviewParams != null &&
+                webviewParams!.onReceivedServerTrustAuthRequest != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterServerTrustChallenge challenge = AqutterServerTrustChallenge.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null &&
+              webviewParams!.onReceivedServerTrustAuthRequest != null)
+            return (await webviewParams!.onReceivedServerTrustAuthRequest!(
+              _controllerFromPlatform,
+              challenge,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!
+                    .onReceivedServerTrustAuthRequest(challenge))
+                ?.toMap();
+        }
+        break;
+      case "onReceivedClientCertRequest":
+        if ((webviewParams != null &&
+                webviewParams!.onReceivedClientCertRequest != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterClientCertChallenge challenge = AqutterClientCertChallenge.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null &&
+              webviewParams!.onReceivedClientCertRequest != null)
+            return (await webviewParams!.onReceivedClientCertRequest!(
+              _controllerFromPlatform,
+              challenge,
+            ))?.toMap();
+          else
+            return (await _browserEventHandler!
+                    .onReceivedClientCertRequest(challenge))
+                ?.toMap();
+        }
+        break;
+      case "onFindResultReceived":
+        if ((webviewParams != null &&
+                (webviewParams!.onFindResultReceived != null ||
+                    (webviewParams!.findInteractionController != null &&
+                        webviewParams!
+                                .findInteractionController!
+                                .params
+                                .onFindResultReceived !=
+                            null))) ||
+            _browserEventHandler != null) {
+          int activeMatchOrdinal = call.arguments["activeMatchOrdinal"];
+          int numberOfMatches = call.arguments["numberOfMatches"];
+          bool isDoneCounting = call.arguments["isDoneCounting"];
+          if (webviewParams != null) {
+            if (webviewParams!.findInteractionController != null &&
+                webviewParams!
+                        .findInteractionController!
+                        .params
+                        .onFindResultReceived !=
+                    null)
+              webviewParams!
+                  .findInteractionController!
+                  .params
+                  .onFindResultReceived!(
+                webviewParams!.findInteractionController!,
+                activeMatchOrdinal,
+                numberOfMatches,
+                isDoneCounting,
+              );
+            else
+              webviewParams!.onFindResultReceived!(
+                _controllerFromPlatform,
+                activeMatchOrdinal,
+                numberOfMatches,
+                isDoneCounting,
+              );
+          } else {
+            if (_browser!.findInteractionController != null &&
+                _browser!
+                        .findInteractionController!
+                        .onFindResultReceived !=
+                    null)
+              _browser!.findInteractionController!.onFindResultReceived!(
+                webviewParams!.findInteractionController!,
+                activeMatchOrdinal,
+                numberOfMatches,
+                isDoneCounting,
+              );
+            else
+              _browserEventHandler!.onFindResultReceived(
+                activeMatchOrdinal,
+                numberOfMatches,
+                isDoneCounting,
+              );
+          }
+        }
+        break;
+      case "onPermissionRequest":
+        if ((webviewParams != null &&
+                (webviewParams!.onPermissionRequest != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.androidOnPermissionRequest != null)) ||
+            _browserEventHandler != null) {
+          String origin = call.arguments["origin"];
+          List<String> resources = call.arguments["resources"].cast<String>();
+
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterPermissionRequest permissionRequest = AqutterPermissionRequest.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onPermissionRequest != null)
+              return (await webviewParams!.onPermissionRequest!(
+                _controllerFromPlatform,
+                permissionRequest,
+              ))?.toMap();
+            else {
+              return (await webviewParams!.androidOnPermissionRequest!(
+                _controllerFromPlatform,
+                origin,
+                resources,
+              ))?.toMap();
+            }
+          } else {
+            return (await _browserEventHandler!.onPermissionRequest(
+                  permissionRequest,
+                ))?.toMap() ??
+                (await _browserEventHandler!.androidOnPermissionRequest(
+                  origin,
+                  resources,
+                ))?.toMap();
+          }
+        }
+        break;
+      case "onUpdateVisitedHistory":
+        if ((webviewParams != null &&
+                webviewParams!.onUpdateVisitedHistory != null) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          bool? isReload = call.arguments["isReload"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+          if (webviewParams != null &&
+              webviewParams!.onUpdateVisitedHistory != null)
+            webviewParams!.onUpdateVisitedHistory!(
+              _controllerFromPlatform,
+              uri,
+              isReload,
+            );
+          else
+            _browserEventHandler!.onUpdateVisitedHistory(uri, isReload);
+        }
+        break;
+      case "onWebContentProcessDidTerminate":
+        if (webviewParams != null &&
+            (webviewParams!.onWebContentProcessDidTerminate != null ||
+                // ignore: deprecated_member_use_from_same_package
+                webviewParams!.iosOnWebContentProcessDidTerminate != null)) {
+          if (webviewParams!.onWebContentProcessDidTerminate != null)
+            webviewParams!.onWebContentProcessDidTerminate!(
+              _controllerFromPlatform,
+            );
+          else {
+            // ignore: deprecated_member_use_from_same_package
+            webviewParams!.iosOnWebContentProcessDidTerminate!(
+              _controllerFromPlatform,
+            );
+          }
+        } else if (_browserEventHandler != null) {
+          _browserEventHandler!.onWebContentProcessDidTerminate();
+          // ignore: deprecated_member_use_from_same_package
+          _browserEventHandler!.iosOnWebContentProcessDidTerminate();
+        }
+        break;
+      case "onPageCommitVisible":
+        if ((webviewParams != null &&
+                webviewParams!.onPageCommitVisible != null) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+          if (webviewParams != null &&
+              webviewParams!.onPageCommitVisible != null)
+            webviewParams!.onPageCommitVisible!(_controllerFromPlatform, uri);
+          else
+            _browserEventHandler!.onPageCommitVisible(uri);
+        }
+        break;
+      case "onDidReceiveServerRedirectForProvisionalNavigation":
+        if (webviewParams != null &&
+            (webviewParams!
+                        .onDidReceiveServerRedirectForProvisionalNavigation !=
+                    null ||
+                params
+                        .webviewParams!
+                        // ignore: deprecated_member_use_from_same_package
+                        .iosOnDidReceiveServerRedirectForProvisionalNavigation !=
+                    null)) {
+          if (webviewParams!
+                  .onDidReceiveServerRedirectForProvisionalNavigation !=
+              null)
+            webviewParams!.onDidReceiveServerRedirectForProvisionalNavigation!(
+              _controllerFromPlatform,
+            );
+          else {
+            params
+                .webviewParams!
+                // ignore: deprecated_member_use_from_same_package
+                .iosOnDidReceiveServerRedirectForProvisionalNavigation!(
+              _controllerFromPlatform,
+            );
+          }
+        } else if (_browserEventHandler != null) {
+          _browserEventHandler!
+              .onDidReceiveServerRedirectForProvisionalNavigation();
+          _browserEventHandler!
+              .iosOnDidReceiveServerRedirectForProvisionalNavigation();
+        }
+        break;
+      case "onNavigationResponse":
+        if ((webviewParams != null &&
+                (webviewParams!.onNavigationResponse != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.iosOnNavigationResponse != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          // ignore: deprecated_member_use_from_same_package
+          AqutterIOSWKNavigationResponse iosOnNavigationResponse =
+              // ignore: deprecated_member_use_from_same_package
+              AqutterIOSWKNavigationResponse.fromMap(arguments)!;
+
+          AqutterNavigationResponse navigationResponse = AqutterNavigationResponse.fromMap(
+            arguments,
+          )!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onNavigationResponse != null)
+              return (await webviewParams!.onNavigationResponse!(
+                _controllerFromPlatform,
+                navigationResponse,
+              ))?.toNativeValue();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.iosOnNavigationResponse!(
+                _controllerFromPlatform,
+                iosOnNavigationResponse,
+              ))?.toNativeValue();
+            }
+          } else {
+            return (await _browserEventHandler!.onNavigationResponse(
+                  navigationResponse,
+                ))?.toNativeValue() ??
+                (await _browserEventHandler!.iosOnNavigationResponse(
+                  iosOnNavigationResponse,
+                ))?.toNativeValue();
+          }
+        }
+        break;
+      case "shouldAllowDeprecatedTLS":
+        if ((webviewParams != null &&
+                (webviewParams!.shouldAllowDeprecatedTLS != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.iosShouldAllowDeprecatedTLS != null)) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterURLAuthenticationChallenge challenge =
+              AqutterURLAuthenticationChallenge.fromMap(arguments)!;
+
+          if (webviewParams != null) {
+            if (webviewParams!.shouldAllowDeprecatedTLS != null)
+              return (await webviewParams!.shouldAllowDeprecatedTLS!(
+                _controllerFromPlatform,
+                challenge,
+              ))?.toNativeValue();
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              return (await webviewParams!.iosShouldAllowDeprecatedTLS!(
+                _controllerFromPlatform,
+                challenge,
+              ))?.toNativeValue();
+            }
+          } else {
+            return (await _browserEventHandler!.shouldAllowDeprecatedTLS(
+                  challenge,
+                ))?.toNativeValue() ??
+                // ignore: deprecated_member_use_from_same_package
+                (await _browserEventHandler!.iosShouldAllowDeprecatedTLS(
+                  challenge,
+                ))?.toNativeValue();
+          }
+        }
+        break;
+      case "onLongPressHitTestResult":
+        if ((webviewParams != null &&
+                webviewParams!.onLongPressHitTestResult != null) ||
+            _browserEventHandler != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterWebViewHitTestResult hitTestResult =
+              AqutterWebViewHitTestResult.fromMap(arguments)!;
+
+          if (webviewParams != null &&
+              webviewParams!.onLongPressHitTestResult != null)
+            webviewParams!.onLongPressHitTestResult!(
+              _controllerFromPlatform,
+              hitTestResult,
+            );
+          else
+            _browserEventHandler!.onLongPressHitTestResult(hitTestResult);
+        }
+        break;
+      case "onCreateContextMenu":
+        AqutterContextMenu? contextMenu;
+        if (webviewParams != null && webviewParams!.contextMenu != null) {
+          contextMenu = webviewParams!.contextMenu;
+        } else if (_browserEventHandler != null &&
+            _browser!.contextMenu != null) {
+          contextMenu = _browser!.contextMenu;
+        }
+
+        if (contextMenu != null && contextMenu.onCreateContextMenu != null) {
+          Map<String, dynamic> arguments = call.arguments
+              .cast<String, dynamic>();
+          AqutterWebViewHitTestResult hitTestResult =
+              AqutterWebViewHitTestResult.fromMap(arguments)!;
+
+          contextMenu.onCreateContextMenu!(hitTestResult);
+        }
+        break;
+      case "onHideContextMenu":
+        AqutterContextMenu? contextMenu;
+        if (webviewParams != null && webviewParams!.contextMenu != null) {
+          contextMenu = webviewParams!.contextMenu;
+        } else if (_browserEventHandler != null &&
+            _browser!.contextMenu != null) {
+          contextMenu = _browser!.contextMenu;
+        }
+
+        if (contextMenu != null && contextMenu.onHideContextMenu != null) {
+          contextMenu.onHideContextMenu!();
+        }
+        break;
+      case "onContextMenuActionItemClicked":
+        AqutterContextMenu? contextMenu;
+        if (webviewParams != null && webviewParams!.contextMenu != null) {
+          contextMenu = webviewParams!.contextMenu;
+        } else if (_browserEventHandler != null &&
+            _browser!.contextMenu != null) {
+          contextMenu = _browser!.contextMenu;
+        }
+
+        if (contextMenu != null) {
+          int? androidId = call.arguments["androidId"];
+          String? iosId = call.arguments["iosId"];
+          dynamic id = call.arguments["id"];
+          String title = call.arguments["title"];
+
+          AqutterContextMenuItem menuItemClicked = AqutterContextMenuItem(
+            id: id,
+            // ignore: deprecated_member_use_from_same_package
+            androidId: androidId,
+            // ignore: deprecated_member_use_from_same_package
+            iosId: iosId,
+            title: title,
+            action: null,
+          );
+
+          for (var menuItem in contextMenu.menuItems) {
+            if (menuItem.id == id) {
+              menuItemClicked = menuItem;
+              if (menuItem.action != null) {
+                menuItem.action!();
+              }
+              break;
+            }
+          }
+
+          if (contextMenu.onContextMenuActionItemClicked != null) {
+            contextMenu.onContextMenuActionItemClicked!(menuItemClicked);
+          }
+        }
+        break;
+      case "onEnterFullscreen":
+        if (webviewParams != null && webviewParams!.onEnterFullscreen != null)
+          webviewParams!.onEnterFullscreen!(_controllerFromPlatform);
+        else if (_browserEventHandler != null)
+          _browserEventHandler!.onEnterFullscreen();
+        break;
+      case "onExitFullscreen":
+        if (webviewParams != null && webviewParams!.onExitFullscreen != null)
+          webviewParams!.onExitFullscreen!(_controllerFromPlatform);
+        else if (_browserEventHandler != null)
+          _browserEventHandler!.onExitFullscreen();
+        break;
+      case "onOverScrolled":
+        if ((webviewParams != null && webviewParams!.onOverScrolled != null) ||
+            _browserEventHandler != null) {
+          int x = call.arguments["x"];
+          int y = call.arguments["y"];
+          bool clampedX = call.arguments["clampedX"];
+          bool clampedY = call.arguments["clampedY"];
+
+          if (webviewParams != null && webviewParams!.onOverScrolled != null)
+            webviewParams!.onOverScrolled!(
+              _controllerFromPlatform,
+              x,
+              y,
+              clampedX,
+              clampedY,
+            );
+          else
+            _browserEventHandler!.onOverScrolled(x, y, clampedX, clampedY);
+        }
+        break;
+      case "onWindowFocus":
+        if (webviewParams != null && webviewParams!.onWindowFocus != null)
+          webviewParams!.onWindowFocus!(_controllerFromPlatform);
+        else if (_browserEventHandler != null)
+          _browserEventHandler!.onWindowFocus();
+        break;
+      case "onWindowBlur":
+        if (webviewParams != null && webviewParams!.onWindowBlur != null)
+          webviewParams!.onWindowBlur!(_controllerFromPlatform);
+        else if (_browserEventHandler != null)
+          _browserEventHandler!.onWindowBlur();
+        break;
+      case "onPrintRequest":
+        if ((webviewParams != null &&
+                (webviewParams!.onPrintRequest != null ||
+                    // ignore: deprecated_member_use_from_same_package
+                    webviewParams!.onPrint != null)) ||
+            _browserEventHandler != null) {
+          String? url = call.arguments["url"];
+          String? printJobId = call.arguments["printJobId"];
+          AqutterWebUri? uri = url != null ? AqutterWebUri(url) : null;
+          IOSPrintJobController? printJob = printJobId != null
+              ? IOSPrintJobController(
+                  IOSPrintJobControllerCreationParams(id: printJobId),
+                )
+              : null;
+
+          if (webviewParams != null) {
+            if (webviewParams!.onPrintRequest != null)
+              return await webviewParams!.onPrintRequest!(
+                _controllerFromPlatform,
+                uri,
+                printJob,
+              );
+            else {
+              // ignore: deprecated_member_use_from_same_package
+              webviewParams!.onPrint!(_controllerFromPlatform, uri);
+              return false;
+            }
+          } else {
+            // ignore: deprecated_member_use_from_same_package
+            _browserEventHandler!.onPrint(uri);
+            return await _browserEventHandler!.onPrintRequest(
+              uri,
+              printJob,
+            );
+          }
+        }
+        break;
+      case "onInjectedScriptLoaded":
+        String id = call.arguments[0];
+        var onLoadCallback = _injectedScriptsFromURL[id]?.onLoad;
+        if ((webviewParams != null || _browserEventHandler != null) &&
+            onLoadCallback != null) {
+          onLoadCallback();
+        }
+        break;
+      case "onInjectedScriptError":
+        String id = call.arguments[0];
+        var onErrorCallback = _injectedScriptsFromURL[id]?.onError;
+        if ((webviewParams != null || _browserEventHandler != null) &&
+            onErrorCallback != null) {
+          onErrorCallback();
+        }
+        break;
+      case "onCameraCaptureStateChanged":
+        if ((webviewParams != null &&
+                webviewParams!.onCameraCaptureStateChanged != null) ||
+            _browserEventHandler != null) {
+          var oldState = AqutterMediaCaptureState.fromNativeValue(
+            call.arguments["oldState"],
+          );
+          var newState = AqutterMediaCaptureState.fromNativeValue(
+            call.arguments["newState"],
+          );
+
+          if (webviewParams != null &&
+              webviewParams!.onCameraCaptureStateChanged != null)
+            webviewParams!.onCameraCaptureStateChanged!(
+              _controllerFromPlatform,
+              oldState,
+              newState,
+            );
+          else
+            _browserEventHandler!.onCameraCaptureStateChanged(
+              oldState,
+              newState,
+            );
+        }
+        break;
+      case "onMicrophoneCaptureStateChanged":
+        if ((webviewParams != null &&
+                webviewParams!.onMicrophoneCaptureStateChanged != null) ||
+            _browserEventHandler != null) {
+          var oldState = AqutterMediaCaptureState.fromNativeValue(
+            call.arguments["oldState"],
+          );
+          var newState = AqutterMediaCaptureState.fromNativeValue(
+            call.arguments["newState"],
+          );
+
+          if (webviewParams != null &&
+              webviewParams!.onMicrophoneCaptureStateChanged != null)
+            webviewParams!.onMicrophoneCaptureStateChanged!(
+              _controllerFromPlatform,
+              oldState,
+              newState,
+            );
+          else
+            _browserEventHandler!.onMicrophoneCaptureStateChanged(
+              oldState,
+              newState,
+            );
+        }
+        break;
+      case "onContentSizeChanged":
+        if ((webviewParams != null &&
+                webviewParams!.onContentSizeChanged != null) ||
+            _browserEventHandler != null) {
+          var oldContentSize = MapSize.fromMap(
+            call.arguments["oldContentSize"]?.cast<String, dynamic>(),
+          )!;
+          var newContentSize = MapSize.fromMap(
+            call.arguments["newContentSize"]?.cast<String, dynamic>(),
+          )!;
+
+          if (webviewParams != null &&
+              webviewParams!.onContentSizeChanged != null)
+            webviewParams!.onContentSizeChanged!(
+              _controllerFromPlatform,
+              oldContentSize,
+              newContentSize,
+            );
+          else
+            _browserEventHandler!.onContentSizeChanged(
+              oldContentSize,
+              newContentSize,
+            );
+        }
+        break;
+      case "onCallJsHandler":
+        String handlerName = call.arguments["handlerName"];
+        Map<String, dynamic> handlerDataMap = call.arguments["data"]
+            .cast<String, dynamic>();
+        // decode args to json
+        handlerDataMap["args"] = jsonDecode(handlerDataMap["args"]);
+        final handlerData = AqutterJavaScriptHandlerFunctionData.fromMap(
+          handlerDataMap,
+        )!;
+
+        _debugLog(handlerName, handlerData);
+
+        switch (handlerName) {
+          case "onLoadResource":
+            if ((webviewParams != null &&
+                    webviewParams!.onLoadResource != null) ||
+                _browserEventHandler != null) {
+              Map<String, dynamic> arguments = handlerData.args[0]
+                  .cast<String, dynamic>();
+              arguments["startTime"] = arguments["startTime"] is int
+                  ? arguments["startTime"].toDouble()
+                  : arguments["startTime"];
+              arguments["duration"] = arguments["duration"] is int
+                  ? arguments["duration"].toDouble()
+                  : arguments["duration"];
+
+              var response = AqutterLoadedResource.fromMap(arguments)!;
+
+              if (webviewParams != null &&
+                  webviewParams!.onLoadResource != null)
+                webviewParams!.onLoadResource!(
+                  _controllerFromPlatform,
+                  response,
+                );
+              else
+                _browserEventHandler!.onLoadResource(response);
+            }
+            return null;
+          case "shouldInterceptAjaxRequest":
+            if ((webviewParams != null &&
+                    webviewParams!.shouldInterceptAjaxRequest != null) ||
+                _browserEventHandler != null) {
+              Map<String, dynamic> arguments = handlerData.args[0]
+                  .cast<String, dynamic>();
+              AqutterAjaxRequest request = AqutterAjaxRequest.fromMap(arguments)!;
+
+              if (webviewParams != null &&
+                  webviewParams!.shouldInterceptAjaxRequest != null)
+                return jsonEncode(
+                  await params.webviewParams!.shouldInterceptAjaxRequest!(
+                    _controllerFromPlatform,
+                    request,
+                  ),
+                );
+              else
+                return jsonEncode(
+                  await _browserEventHandler!.shouldInterceptAjaxRequest(
+                    request,
+                  ),
+                );
+            }
+            return null;
+          case "onAjaxReadyStateChange":
+            if ((webviewParams != null &&
+                    webviewParams!.onAjaxReadyStateChange != null) ||
+                _browserEventHandler != null) {
+              Map<String, dynamic> arguments = handlerData.args[0]
+                  .cast<String, dynamic>();
+              AqutterAjaxRequest request = AqutterAjaxRequest.fromMap(arguments)!;
+
+              if (webviewParams != null &&
+                  webviewParams!.onAjaxReadyStateChange != null)
+                return jsonEncode(
+                  (await webviewParams!.onAjaxReadyStateChange!(
+                    _controllerFromPlatform,
+                    request,
+                  ))?.toNativeValue(),
+                );
+              else
+                return jsonEncode(
+                  (await _browserEventHandler!.onAjaxReadyStateChange(
+                    request,
+                  ))?.toNativeValue(),
+                );
+            }
+            return null;
+          case "onAjaxProgress":
+            if ((webviewParams != null &&
+                    webviewParams!.onAjaxProgress != null) ||
+                _browserEventHandler != null) {
+              Map<String, dynamic> arguments = handlerData.args[0]
+                  .cast<String, dynamic>();
+              AqutterAjaxRequest request = AqutterAjaxRequest.fromMap(arguments)!;
+
+              if (webviewParams != null &&
+                  webviewParams!.onAjaxProgress != null)
+                return jsonEncode(
+                  (await webviewParams!.onAjaxProgress!(
+                    _controllerFromPlatform,
+                    request,
+                  ))?.toNativeValue(),
+                );
+              else
+                return jsonEncode(
+                  (await _browserEventHandler!.onAjaxProgress(
+                    request,
+                  ))?.toNativeValue(),
+                );
+            }
+            return null;
+          case "shouldInterceptFetchRequest":
+            if ((webviewParams != null &&
+                    webviewParams!.shouldInterceptFetchRequest != null) ||
+                _browserEventHandler != null) {
+              Map<String, dynamic> arguments = handlerData.args[0]
+                  .cast<String, dynamic>();
+              AqutterFetchRequest request = AqutterFetchRequest.fromMap(arguments)!;
+
+              if (webviewParams != null &&
+                  webviewParams!.shouldInterceptFetchRequest != null)
+                return jsonEncode(
+                  await webviewParams!.shouldInterceptFetchRequest!(
+                    _controllerFromPlatform,
+                    request,
+                  ),
+                );
+              else
+                return jsonEncode(
+                  await _browserEventHandler!.shouldInterceptFetchRequest(
+                    request,
+                  ),
+                );
+            }
+            return null;
+          case "onWindowFocus":
+            if (webviewParams != null && webviewParams!.onWindowFocus != null)
+              webviewParams!.onWindowFocus!(_controllerFromPlatform);
+            else if (_browserEventHandler != null)
+              _browserEventHandler!.onWindowFocus();
+            return null;
+          case "onWindowBlur":
+            if (webviewParams != null && webviewParams!.onWindowBlur != null)
+              webviewParams!.onWindowBlur!(_controllerFromPlatform);
+            else if (_browserEventHandler != null)
+              _browserEventHandler!.onWindowBlur();
+            return null;
+          case "onInjectedScriptLoaded":
+            String id = handlerData.args[0];
+            var onLoadCallback = _injectedScriptsFromURL[id]?.onLoad;
+            if ((webviewParams != null || _browserEventHandler != null) &&
+                onLoadCallback != null) {
+              onLoadCallback();
+            }
+            return null;
+          case "onInjectedScriptError":
+            String id = handlerData.args[0];
+            var onErrorCallback = _injectedScriptsFromURL[id]?.onError;
+            if ((webviewParams != null || _browserEventHandler != null) &&
+                onErrorCallback != null) {
+              onErrorCallback();
+            }
+            return null;
+        }
+
+        if (_javaScriptHandlersMap.containsKey(handlerName)) {
+          // convert result to json
+          try {
+            var jsHandlerResult = null;
+            if (_javaScriptHandlersMap[handlerName]
+                is AqutterJavaScriptHandlerCallback) {
+              jsHandlerResult =
+                  await (_javaScriptHandlersMap[handlerName]
+                      as AqutterJavaScriptHandlerCallback)(handlerData.args);
+            } else if (_javaScriptHandlersMap[handlerName]
+                is AqutterJavaScriptHandlerFunction) {
+              jsHandlerResult =
+                  await (_javaScriptHandlersMap[handlerName]
+                      as AqutterJavaScriptHandlerFunction)(handlerData);
+            } else {
+              jsHandlerResult = await _javaScriptHandlersMap[handlerName]!();
+            }
+            return jsonEncode(jsHandlerResult);
+          } catch (error, stacktrace) {
+            developer.log(
+              error.toString() + '\n' + stacktrace.toString(),
+              name: 'JavaScript Handler "$handlerName"',
+            );
+            throw Exception(error.toString().replaceFirst('Exception: ', ''));
+          }
+        }
+        break;
+      default:
+        throw UnimplementedError("Unimplemented ${call.method} method");
+    }
+    return null;
+  }
+
+  @override
+  Future<AqutterWebUri?> getUrl() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    String? url = await channel?.invokeMethod<String?>('getUrl', args);
+    return url != null ? AqutterWebUri(url) : null;
+  }
+
+  @override
+  Future<String?> getTitle() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<String?>('getTitle', args);
+  }
+
+  @override
+  Future<int?> getProgress() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<int?>('getProgress', args);
+  }
+
+  @override
+  Future<String?> getHtml() async {
+    String? html;
+
+    AqutterWebViewSettings? settings = await getSettings();
+    if (settings != null && settings.javaScriptEnabled == true) {
+      html = await evaluateJavascript(
+        source: "window.document.getElementsByTagName('html')[0].outerHTML;",
+      );
+      if (html != null && html.isNotEmpty) return html;
+    }
+
+    var webviewUrl = await getUrl();
+    if (webviewUrl == null) {
+      return html;
+    }
+
+    if (webviewUrl.isScheme("file")) {
+      var assetPathSplit = webviewUrl.toString().split("/flutter_assets/");
+      var assetPath = assetPathSplit[assetPathSplit.length - 1];
+      try {
+        var bytes = await rootBundle.load(assetPath);
+        html = utf8.decode(bytes.buffer.asUint8List());
+      } catch (e) {}
+    } else {
+      try {
+        HttpClient client = HttpClient();
+        var htmlRequest = await client.getUrl(webviewUrl);
+        html = await (await htmlRequest.close())
+            .transform(Utf8Decoder())
+            .join();
+      } catch (e) {
+        developer.log(e.toString(), name: this.runtimeType.toString());
+      }
+    }
+
+    return html;
+  }
+
+  @override
+  Future<List<AqutterFavicon>> getFavicons() async {
+    List<AqutterFavicon> favicons = [];
+
+    var webviewUrl = await getUrl();
+
+    if (webviewUrl == null) {
+      return favicons;
+    }
+
+    String? manifestUrl;
+
+    var html = await getHtml();
+    if (html == null || html.isEmpty) {
+      return favicons;
+    }
+    var assetPathBase;
+
+    if (webviewUrl.isScheme("file")) {
+      var assetPathSplit = webviewUrl.toString().split("/flutter_assets/");
+      assetPathBase = assetPathSplit[0] + "/flutter_assets/";
+    }
+
+    AqutterWebViewSettings? settings = await getSettings();
+    if (settings != null && settings.javaScriptEnabled == true) {
+      List<Map<dynamic, dynamic>> links =
+          (await evaluateJavascript(
+            source: """
+(function() {
+  var linkNodes = document.head.getElementsByTagName("link");
+  var links = [];
+  for (var i = 0; i < linkNodes.length; i++) {
+    var linkNode = linkNodes[i];
+    if (linkNode.rel === 'manifest') {
+      links.push(
+        {
+          rel: linkNode.rel,
+          href: linkNode.href,
+          sizes: null
+        }
+      );
+    } else if (linkNode.rel != null && linkNode.rel.indexOf('icon') >= 0) {
+      links.push(
+        {
+          rel: linkNode.rel,
+          href: linkNode.href,
+          sizes: linkNode.sizes != null && linkNode.sizes.value != "" ? linkNode.sizes.value : null
+        }
+      );
+    }
+  }
+  return links;
+})();
+""",
+          ))?.cast<Map<dynamic, dynamic>>() ??
+          [];
+      for (var link in links) {
+        if (link["rel"] == "manifest") {
+          manifestUrl = link["href"];
+          if (!_isUrlAbsolute(manifestUrl!)) {
+            if (manifestUrl.startsWith("/")) {
+              manifestUrl = manifestUrl.substring(1);
+            }
+            manifestUrl =
+                ((assetPathBase == null)
+                    ? webviewUrl.scheme + "://" + webviewUrl.host + "/"
+                    : assetPathBase) +
+                manifestUrl;
+          }
+          continue;
+        }
+        favicons.addAll(
+          _createFavicons(
+            webviewUrl,
+            assetPathBase,
+            link["href"],
+            link["rel"],
+            link["sizes"],
+            false,
+          ),
+        );
+      }
+    }
+
+    // try to get /favicon.ico
+    try {
+      HttpClient client = HttpClient();
+      var faviconUrl =
+          webviewUrl.scheme + "://" + webviewUrl.host + "/favicon.ico";
+      var faviconUri = AqutterWebUri(faviconUrl);
+      var headRequest = await client.headUrl(faviconUri);
+      var headResponse = await headRequest.close();
+      if (headResponse.statusCode == 200) {
+        favicons.add(AqutterFavicon(url: faviconUri, rel: "shortcut icon"));
+      }
+    } catch (e) {
+      developer.log(
+        "/favicon.ico file not found: " + e.toString(),
+        name: runtimeType.toString(),
+      );
+    }
+
+    // try to get the manifest file
+    HttpClientRequest? manifestRequest;
+    HttpClientResponse? manifestResponse;
+    bool manifestFound = false;
+    if (manifestUrl == null) {
+      manifestUrl =
+          webviewUrl.scheme + "://" + webviewUrl.host + "/manifest.json";
+    }
+    try {
+      HttpClient client = HttpClient();
+      manifestRequest = await client.getUrl(Uri.parse(manifestUrl));
+      manifestResponse = await manifestRequest.close();
+      manifestFound =
+          manifestResponse.statusCode == 200 &&
+          manifestResponse.headers.contentType?.mimeType == "application/json";
+    } catch (e) {
+      developer.log(
+        "Manifest file not found: " + e.toString(),
+        name: this.runtimeType.toString(),
+      );
+    }
+
+    if (manifestFound) {
+      try {
+        Map<String, dynamic> manifest = json.decode(
+          await manifestResponse!.transform(Utf8Decoder()).join(),
+        );
+        if (manifest.containsKey("icons")) {
+          for (Map<String, dynamic> icon in manifest["icons"]) {
+            favicons.addAll(
+              _createFavicons(
+                webviewUrl,
+                assetPathBase,
+                icon["src"],
+                icon["rel"],
+                icon["sizes"],
+                true,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        developer.log(
+          "Cannot get favicons from Manifest file. It might not have a valid format: " +
+              e.toString(),
+          error: e,
+          name: runtimeType.toString(),
+        );
+      }
+    }
+
+    return favicons;
+  }
+
+  bool _isUrlAbsolute(String url) {
+    return url.startsWith("http://") || url.startsWith("https://");
+  }
+
+  List<AqutterFavicon> _createFavicons(
+    AqutterWebUri url,
+    String? assetPathBase,
+    String urlIcon,
+    String? rel,
+    String? sizes,
+    bool isManifest,
+  ) {
+    List<AqutterFavicon> favicons = [];
+
+    List<String> urlSplit = urlIcon.split("/");
+    if (!_isUrlAbsolute(urlIcon)) {
+      if (urlIcon.startsWith("/")) {
+        urlIcon = urlIcon.substring(1);
+      }
+      urlIcon =
+          ((assetPathBase == null)
+              ? url.scheme + "://" + url.host + "/"
+              : assetPathBase) +
+          urlIcon;
+    }
+    if (isManifest) {
+      rel = (sizes != null)
+          ? urlSplit[urlSplit.length - 1]
+                .replaceFirst("-" + sizes, "")
+                .split(" ")[0]
+                .split(".")[0]
+          : null;
+    }
+    if (sizes != null && sizes.isNotEmpty && sizes != "any") {
+      List<String> sizesSplit = sizes.split(" ");
+      for (String size in sizesSplit) {
+        int width = int.parse(size.split("x")[0]);
+        int height = int.parse(size.split("x")[1]);
+        favicons.add(
+          AqutterFavicon(url: AqutterWebUri(urlIcon), rel: rel, width: width, height: height),
+        );
+      }
+    } else {
+      favicons.add(
+        AqutterFavicon(url: AqutterWebUri(urlIcon), rel: rel, width: null, height: null),
+      );
+    }
+
+    return favicons;
+  }
+
+  @override
+  Future<void> loadUrl({
+    required AqutterURLRequest urlRequest,
+    @Deprecated('Use allowingReadAccessTo instead')
+    Uri? iosAllowingReadAccessTo,
+    AqutterWebUri? allowingReadAccessTo,
+  }) async {
+    assert(urlRequest.url != null && urlRequest.url.toString().isNotEmpty);
+    assert(
+      allowingReadAccessTo == null || allowingReadAccessTo.isScheme("file"),
+    );
+    assert(
+      iosAllowingReadAccessTo == null ||
+          iosAllowingReadAccessTo.isScheme("file"),
+    );
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('urlRequest', () => urlRequest.toMap());
+    args.putIfAbsent(
+      'allowingReadAccessTo',
+      () =>
+          allowingReadAccessTo?.toString() ??
+          iosAllowingReadAccessTo?.toString(),
+    );
+    await channel?.invokeMethod('loadUrl', args);
+  }
+
+  @override
+  Future<void> postUrl({
+    required AqutterWebUri url,
+    required Uint8List postData,
+  }) async {
+    assert(url.toString().isNotEmpty);
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('url', () => url.toString());
+    args.putIfAbsent('postData', () => postData);
+    await channel?.invokeMethod('postUrl', args);
+  }
+
+  @override
+  Future<void> loadData({
+    required String data,
+    String mimeType = "text/html",
+    String encoding = "utf8",
+    AqutterWebUri? baseUrl,
+    @Deprecated('Use historyUrl instead') Uri? androidHistoryUrl,
+    AqutterWebUri? historyUrl,
+    @Deprecated('Use allowingReadAccessTo instead')
+    Uri? iosAllowingReadAccessTo,
+    AqutterWebUri? allowingReadAccessTo,
+  }) async {
+    assert(
+      allowingReadAccessTo == null || allowingReadAccessTo.isScheme("file"),
+    );
+    assert(
+      iosAllowingReadAccessTo == null ||
+          iosAllowingReadAccessTo.isScheme("file"),
+    );
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('data', () => data);
+    args.putIfAbsent('mimeType', () => mimeType);
+    args.putIfAbsent('encoding', () => encoding);
+    args.putIfAbsent('baseUrl', () => baseUrl?.toString() ?? "about:blank");
+    args.putIfAbsent(
+      'historyUrl',
+      () =>
+          historyUrl?.toString() ??
+          androidHistoryUrl?.toString() ??
+          "about:blank",
+    );
+    args.putIfAbsent(
+      'allowingReadAccessTo',
+      () =>
+          allowingReadAccessTo?.toString() ??
+          iosAllowingReadAccessTo?.toString(),
+    );
+    await channel?.invokeMethod('loadData', args);
+  }
+
+  @override
+  Future<void> loadFile({required String assetFilePath}) async {
+    assert(assetFilePath.isNotEmpty);
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('assetFilePath', () => assetFilePath);
+    await channel?.invokeMethod('loadFile', args);
+  }
+
+  @override
+  Future<void> reload() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('reload', args);
+  }
+
+  @override
+  Future<void> goBack() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('goBack', args);
+  }
+
+  @override
+  Future<bool> canGoBack() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('canGoBack', args) ?? false;
+  }
+
+  @override
+  Future<void> goForward() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('goForward', args);
+  }
+
+  @override
+  Future<bool> canGoForward() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('canGoForward', args) ?? false;
+  }
+
+  @override
+  Future<void> goBackOrForward({required int steps}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('steps', () => steps);
+    await channel?.invokeMethod('goBackOrForward', args);
+  }
+
+  @override
+  Future<bool> canGoBackOrForward({required int steps}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('steps', () => steps);
+    return await channel?.invokeMethod<bool>('canGoBackOrForward', args) ??
+        false;
+  }
+
+  @override
+  Future<void> goTo({required AqutterWebHistoryItem historyItem}) async {
+    var steps = historyItem.offset;
+    if (steps != null) {
+      await goBackOrForward(steps: steps);
+    }
+  }
+
+  @override
+  Future<bool> isLoading() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('isLoading', args) ?? false;
+  }
+
+  @override
+  Future<void> stopLoading() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('stopLoading', args);
+  }
+
+  @override
+  Future<dynamic> evaluateJavascript({
+    required String source,
+    AqutterContentWorld? contentWorld,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('source', () => source);
+    args.putIfAbsent('contentWorld', () => contentWorld?.toMap());
+    var data = await channel?.invokeMethod('evaluateJavascript', args);
+    return data;
+  }
+
+  @override
+  Future<void> injectJavascriptFileFromUrl({
+    required AqutterWebUri urlFile,
+    AqutterScriptHtmlTagAttributes? scriptHtmlTagAttributes,
+  }) async {
+    assert(urlFile.toString().isNotEmpty);
+    var id = scriptHtmlTagAttributes?.id;
+    if (scriptHtmlTagAttributes != null && id != null) {
+      _injectedScriptsFromURL[id] = scriptHtmlTagAttributes;
+    }
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('urlFile', () => urlFile.toString());
+    args.putIfAbsent(
+      'scriptHtmlTagAttributes',
+      () => scriptHtmlTagAttributes?.toMap(),
+    );
+    await channel?.invokeMethod('injectJavascriptFileFromUrl', args);
+  }
+
+  @override
+  Future<dynamic> injectJavascriptFileFromAsset({
+    required String assetFilePath,
+  }) async {
+    String source = await rootBundle.loadString(assetFilePath);
+    return await evaluateJavascript(source: source);
+  }
+
+  @override
+  Future<void> injectCSSCode({required String source}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('source', () => source);
+    await channel?.invokeMethod('injectCSSCode', args);
+  }
+
+  @override
+  Future<void> injectCSSFileFromUrl({
+    required AqutterWebUri urlFile,
+    AqutterCSSLinkHtmlTagAttributes? cssLinkHtmlTagAttributes,
+  }) async {
+    assert(urlFile.toString().isNotEmpty);
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('urlFile', () => urlFile.toString());
+    args.putIfAbsent(
+      'cssLinkHtmlTagAttributes',
+      () => cssLinkHtmlTagAttributes?.toMap(),
+    );
+    await channel?.invokeMethod('injectCSSFileFromUrl', args);
+  }
+
+  @override
+  Future<void> injectCSSFileFromAsset({required String assetFilePath}) async {
+    String source = await rootBundle.loadString(assetFilePath);
+    await injectCSSCode(source: source);
+  }
+
+  @override
+  void addJavaScriptHandler({
+    required String handlerName,
+    required Function callback,
+  }) {
+    assert(
+      !kJavaScriptHandlerForbiddenNames.contains(handlerName),
+      '"$handlerName" is a forbidden name!',
+    );
+    this._javaScriptHandlersMap[handlerName] = (callback);
+  }
+
+  @override
+  Function? removeJavaScriptHandler({required String handlerName}) {
+    return this._javaScriptHandlersMap.remove(handlerName);
+  }
+
+  @override
+  bool hasJavaScriptHandler({required String handlerName}) {
+    return this._javaScriptHandlersMap.containsKey(handlerName);
+  }
+
+  @override
+  Future<Uint8List?> takeScreenshot({
+    AqutterScreenshotConfiguration? screenshotConfiguration,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent(
+      'screenshotConfiguration',
+      () => screenshotConfiguration?.toMap(),
+    );
+    return await channel?.invokeMethod<Uint8List?>('takeScreenshot', args);
+  }
+
+  @override
+  @Deprecated('Use setSettings instead')
+  Future<void> setOptions({required AqutterWebViewGroupOptions options}) async {
+    AqutterWebViewSettings settings =
+        AqutterWebViewSettings.fromMap(options.toMap()) ?? AqutterWebViewSettings();
+    await setSettings(settings: settings);
+  }
+
+  @override
+  @Deprecated('Use getSettings instead')
+  Future<AqutterWebViewGroupOptions?> getOptions() async {
+    AqutterWebViewSettings? settings = await getSettings();
+
+    Map<dynamic, dynamic>? options = settings?.toMap();
+    if (options != null) {
+      options = options.cast<String, dynamic>();
+      return AqutterWebViewGroupOptions.fromMap(options as Map<String, dynamic>);
+    }
+
+    return null;
+  }
+
+  @override
+  Future<void> setSettings({required AqutterWebViewSettings settings}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+
+    args.putIfAbsent('settings', () => settings.toMap());
+    await channel?.invokeMethod('setSettings', args);
+  }
+
+  @override
+  Future<AqutterWebViewSettings?> getSettings() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+
+    Map<dynamic, dynamic>? settings = await channel?.invokeMethod(
+      'getSettings',
+      args,
+    );
+    if (settings != null) {
+      settings = settings.cast<String, dynamic>();
+      return AqutterWebViewSettings.fromMap(settings as Map<String, dynamic>);
+    }
+
+    return null;
+  }
+
+  @override
+  Future<AqutterWebHistory?> getCopyBackForwardList() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<String, dynamic>? result = (await channel?.invokeMethod(
+      'getCopyBackForwardList',
+      args,
+    ))?.cast<String, dynamic>();
+    return AqutterWebHistory.fromMap(result);
+  }
+
+  @override
+  @Deprecated("Use AqutterWebViewController.clearAllCache instead")
+  Future<void> clearCache() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('clearCache', args);
+  }
+
+  @override
+  @Deprecated("Use AqutterFindInteractionController.findAll instead")
+  Future<void> findAllAsync({required String find}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('find', () => find);
+    await channel?.invokeMethod('findAll', args);
+  }
+
+  @override
+  @Deprecated("Use AqutterFindInteractionController.findNext instead")
+  Future<void> findNext({required bool forward}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('forward', () => forward);
+    await channel?.invokeMethod('findNext', args);
+  }
+
+  @override
+  @Deprecated("Use AqutterFindInteractionController.clearMatches instead")
+  Future<void> clearMatches() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('clearMatches', args);
+  }
+
+  @override
+  @Deprecated("Use tRexRunnerHtml instead")
+  Future<String> getTRexRunnerHtml() async {
+    return await tRexRunnerHtml;
+  }
+
+  @override
+  @Deprecated("Use tRexRunnerCss instead")
+  Future<String> getTRexRunnerCss() async {
+    return await tRexRunnerCss;
+  }
+
+  @override
+  Future<void> scrollTo({
+    required int x,
+    required int y,
+    bool animated = false,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('x', () => x);
+    args.putIfAbsent('y', () => y);
+    args.putIfAbsent('animated', () => animated);
+    await channel?.invokeMethod('scrollTo', args);
+  }
+
+  @override
+  Future<void> scrollBy({
+    required int x,
+    required int y,
+    bool animated = false,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('x', () => x);
+    args.putIfAbsent('y', () => y);
+    args.putIfAbsent('animated', () => animated);
+    await channel?.invokeMethod('scrollBy', args);
+  }
+
+  @override
+  Future<void> pauseTimers() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('pauseTimers', args);
+  }
+
+  @override
+  Future<void> resumeTimers() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('resumeTimers', args);
+  }
+
+  @override
+  Future<IOSPrintJobController?> printCurrentPage({
+    AqutterPrintJobSettings? settings,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("settings", () => settings?.toMap());
+    String? jobId = await channel?.invokeMethod<String?>(
+      'printCurrentPage',
+      args,
+    );
+    if (jobId != null) {
+      return IOSPrintJobController(
+        AqutterPlatformPrintJobControllerCreationParams(id: jobId),
+      );
+    }
+    return null;
+  }
+
+  @override
+  Future<int?> getContentHeight() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    var height = await channel?.invokeMethod('getContentHeight', args);
+    if (height == null || height == 0) {
+      // try to use javascript
+      var scrollHeight = await evaluateJavascript(
+        source: "document.documentElement.scrollHeight;",
+      );
+      if (scrollHeight != null && scrollHeight is num) {
+        height = scrollHeight.toInt();
+      }
+    }
+    return height;
+  }
+
+  @override
+  Future<int?> getContentWidth() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    var height = await channel?.invokeMethod('getContentWidth', args);
+    if (height == null || height == 0) {
+      // try to use javascript
+      var scrollHeight = await evaluateJavascript(
+        source: "document.documentElement.scrollWidth;",
+      );
+      if (scrollHeight != null && scrollHeight is num) {
+        height = scrollHeight.toInt();
+      }
+    }
+    return height;
+  }
+
+  @override
+  Future<void> zoomBy({
+    required double zoomFactor,
+    @Deprecated('Use animated instead') bool? iosAnimated,
+    bool animated = false,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('zoomFactor', () => zoomFactor);
+    args.putIfAbsent('animated', () => iosAnimated ?? animated);
+    return await channel?.invokeMethod('zoomBy', args);
+  }
+
+  @override
+  Future<AqutterWebUri?> getOriginalUrl() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    String? url = await channel?.invokeMethod<String?>('getOriginalUrl', args);
+    return url != null ? AqutterWebUri(url) : null;
+  }
+
+  @override
+  Future<double?> getZoomScale() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<double?>('getZoomScale', args);
+  }
+
+  @override
+  @Deprecated('Use getZoomScale instead')
+  Future<double?> getScale() async {
+    return await getZoomScale();
+  }
+
+  @override
+  Future<String?> getSelectedText() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<String?>('getSelectedText', args);
+  }
+
+  @override
+  Future<AqutterWebViewHitTestResult?> getHitTestResult() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<dynamic, dynamic>? hitTestResultMap = await channel?.invokeMethod(
+      'getHitTestResult',
+      args,
+    );
+
+    if (hitTestResultMap == null) {
+      return null;
+    }
+
+    hitTestResultMap = hitTestResultMap.cast<String, dynamic>();
+
+    AqutterWebViewHitTestResultType? type =
+        AqutterWebViewHitTestResultType.fromNativeValue(
+          hitTestResultMap["type"]?.toInt(),
+        );
+    String? extra = hitTestResultMap["extra"];
+    return AqutterWebViewHitTestResult(type: type, extra: extra);
+  }
+
+  @override
+  Future<void> clearFocus() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod('clearFocus', args);
+  }
+
+  @override
+  Future<void> setInputMethodEnabled(bool enabled) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("enabled", () => enabled);
+    return await channel?.invokeMethod('setInputMethodEnabled', args);
+  }
+
+  @override
+  Future<void> hideInputMethod() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod('hideInputMethod', args);
+  }
+
+  @override
+  Future<bool?> requestFocus({
+    AqutterFocusDirection? direction,
+    AqutterWebViewRect? previouslyFocusedRect,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("direction", () => direction?.toNativeValue());
+    args.putIfAbsent(
+      "previouslyFocusedRect",
+      () => previouslyFocusedRect?.toMap(),
+    );
+    return await channel?.invokeMethod<bool>('requestFocus', args);
+  }
+
+  @override
+  Future<void> setContextMenu(AqutterContextMenu? contextMenu) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("contextMenu", () => contextMenu?.toMap());
+    await channel?.invokeMethod('setContextMenu', args);
+    _browser?.setContextMenu(contextMenu);
+  }
+
+  @override
+  Future<AqutterRequestFocusNodeHrefResult?> requestFocusNodeHref() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<dynamic, dynamic>? result = await channel?.invokeMethod(
+      'requestFocusNodeHref',
+      args,
+    );
+    return result != null
+        ? AqutterRequestFocusNodeHrefResult(
+            url: result['url'] != null ? AqutterWebUri(result['url']) : null,
+            title: result['title'],
+            src: result['src'],
+          )
+        : null;
+  }
+
+  @override
+  Future<AqutterRequestImageRefResult?> requestImageRef() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<dynamic, dynamic>? result = await channel?.invokeMethod(
+      'requestImageRef',
+      args,
+    );
+    return result != null
+        ? AqutterRequestImageRefResult(
+            url: result['url'] != null ? AqutterWebUri(result['url']) : null,
+          )
+        : null;
+  }
+
+  @override
+  Future<List<AqutterMetaTag>> getMetaTags() async {
+    List<AqutterMetaTag> metaTags = [];
+
+    List<Map<dynamic, dynamic>>? metaTagList = (await evaluateJavascript(
+      source: """
+(function() {
+  var metaTags = [];
+  var metaTagNodes = document.head.getElementsByTagName('meta');
+  for (var i = 0; i < metaTagNodes.length; i++) {
+    var metaTagNode = metaTagNodes[i];
+    
+    var otherAttributes = metaTagNode.getAttributeNames();
+    var nameIndex = otherAttributes.indexOf("name");
+    if (nameIndex !== -1) otherAttributes.splice(nameIndex, 1);
+    var contentIndex = otherAttributes.indexOf("content");
+    if (contentIndex !== -1) otherAttributes.splice(contentIndex, 1);
+    
+    var attrs = [];
+    for (var j = 0; j < otherAttributes.length; j++) {
+      var otherAttribute = otherAttributes[j];
+      attrs.push(
+        {
+          name: otherAttribute,
+          value: metaTagNode.getAttribute(otherAttribute)
+        }
+      );
+    }
+
+    metaTags.push(
+      {
+        name: metaTagNode.name,
+        content: metaTagNode.content,
+        attrs: attrs
+      }
+    );
+  }
+  return metaTags;
+})();
+    """,
+    ))?.cast<Map<dynamic, dynamic>>();
+
+    if (metaTagList == null) {
+      return metaTags;
+    }
+
+    for (var metaTag in metaTagList) {
+      var attrs = <AqutterMetaTagAttribute>[];
+
+      for (var metaTagAttr in metaTag["attrs"]) {
+        attrs.add(
+          AqutterMetaTagAttribute(
+            name: metaTagAttr["name"],
+            value: metaTagAttr["value"],
+          ),
+        );
+      }
+
+      metaTags.add(
+        AqutterMetaTag(
+          name: metaTag["name"],
+          content: metaTag["content"],
+          attrs: attrs,
+        ),
+      );
+    }
+
+    return metaTags;
+  }
+
+  @override
+  Future<Color?> getMetaThemeColor() async {
+    Color? themeColor;
+
+    try {
+      Map<String, dynamic> args = <String, dynamic>{};
+      themeColor = UtilColor.fromStringRepresentation(
+        await channel?.invokeMethod('getMetaThemeColor', args),
+      );
+      return themeColor;
+    } catch (e) {
+      // not implemented
+    }
+
+    // try using javascript
+    var metaTags = await getMetaTags();
+    AqutterMetaTag? metaTagThemeColor;
+
+    for (var metaTag in metaTags) {
+      if (metaTag.name == "theme-color") {
+        metaTagThemeColor = metaTag;
+        break;
+      }
+    }
+
+    if (metaTagThemeColor == null) {
+      return null;
+    }
+
+    var colorValue = metaTagThemeColor.content;
+
+    themeColor = colorValue != null
+        ? UtilColor.fromStringRepresentation(colorValue)
+        : null;
+
+    return themeColor;
+  }
+
+  @override
+  Future<int?> getScrollX() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<int?>('getScrollX', args);
+  }
+
+  @override
+  Future<int?> getScrollY() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<int?>('getScrollY', args);
+  }
+
+  @override
+  Future<AqutterSslCertificate?> getCertificate() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<String, dynamic>? sslCertificateMap = (await channel?.invokeMethod(
+      'getCertificate',
+      args,
+    ))?.cast<String, dynamic>();
+    return AqutterSslCertificate.fromMap(sslCertificateMap);
+  }
+
+  @override
+  Future<void> addUserScript({required AqutterUserScript userScript}) async {
+    assert(webviewParams?.windowId == null);
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('userScript', () => userScript.toMap());
+    if (!(_userScripts[userScript.injectionTime]?.contains(userScript) ??
+        false)) {
+      _userScripts[userScript.injectionTime]?.add(userScript);
+      await channel?.invokeMethod('addUserScript', args);
+    }
+  }
+
+  @override
+  Future<void> addUserScripts({required List<AqutterUserScript> userScripts}) async {
+    assert(webviewParams?.windowId == null);
+
+    for (var i = 0; i < userScripts.length; i++) {
+      await addUserScript(userScript: userScripts[i]);
+    }
+  }
+
+  @override
+  Future<bool> removeUserScript({required AqutterUserScript userScript}) async {
+    assert(webviewParams?.windowId == null);
+
+    var index = _userScripts[userScript.injectionTime]?.indexOf(userScript);
+    if (index == null || index == -1) {
+      return false;
+    }
+
+    _userScripts[userScript.injectionTime]?.remove(userScript);
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('userScript', () => userScript.toMap());
+    args.putIfAbsent('index', () => index);
+    await channel?.invokeMethod('removeUserScript', args);
+
+    return true;
+  }
+
+  @override
+  Future<void> removeUserScriptsByGroupName({required String groupName}) async {
+    assert(webviewParams?.windowId == null);
+
+    final List<AqutterUserScript> userScriptsAtDocumentStart = List.from(
+      _userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_START] ?? [],
+    );
+    for (final userScript in userScriptsAtDocumentStart) {
+      if (userScript.groupName == groupName) {
+        _userScripts[userScript.injectionTime]?.remove(userScript);
+      }
+    }
+
+    final List<AqutterUserScript> userScriptsAtDocumentEnd = List.from(
+      _userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_END] ?? [],
+    );
+    for (final userScript in userScriptsAtDocumentEnd) {
+      if (userScript.groupName == groupName) {
+        _userScripts[userScript.injectionTime]?.remove(userScript);
+      }
+    }
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('groupName', () => groupName);
+    await channel?.invokeMethod('removeUserScriptsByGroupName', args);
+  }
+
+  @override
+  Future<void> removeUserScripts({
+    required List<AqutterUserScript> userScripts,
+  }) async {
+    assert(webviewParams?.windowId == null);
+
+    for (final userScript in userScripts) {
+      await removeUserScript(userScript: userScript);
+    }
+  }
+
+  @override
+  Future<void> removeAllUserScripts() async {
+    assert(webviewParams?.windowId == null);
+
+    _userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_START]?.clear();
+    _userScripts[AqutterUserScriptInjectionTime.AT_DOCUMENT_END]?.clear();
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('removeAllUserScripts', args);
+  }
+
+  @override
+  bool hasUserScript({required AqutterUserScript userScript}) {
+    return _userScripts[userScript.injectionTime]?.contains(userScript) ??
+        false;
+  }
+
+  @override
+  Future<AqutterCallAsyncJavaScriptResult?> callAsyncJavaScript({
+    required String functionBody,
+    Map<String, dynamic> arguments = const <String, dynamic>{},
+    AqutterContentWorld? contentWorld,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('functionBody', () => functionBody);
+    args.putIfAbsent('arguments', () => arguments);
+    args.putIfAbsent('contentWorld', () => contentWorld?.toMap());
+    var data = await channel?.invokeMethod('callAsyncJavaScript', args);
+    if (data == null) {
+      return null;
+    }
+    return AqutterCallAsyncJavaScriptResult(
+      value: data["value"],
+      error: data["error"],
+    );
+  }
+
+  @override
+  Future<String?> saveWebArchive({
+    required String filePath,
+    bool autoname = false,
+  }) async {
+    if (!autoname) {
+      assert(
+        AqutterWebArchiveFormat.WEBARCHIVE.isSupported() &&
+            filePath.endsWith(
+              "." + AqutterWebArchiveFormat.WEBARCHIVE.toNativeValue()!,
+            ),
+      );
+    }
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("filePath", () => filePath);
+    args.putIfAbsent("autoname", () => autoname);
+    return await channel?.invokeMethod<String?>('saveWebArchive', args);
+  }
+
+  @override
+  Future<bool> isSecureContext() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('isSecureContext', args) ?? false;
+  }
+
+  @override
+  Future<IOSWebMessageChannel?> createWebMessageChannel() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    Map<String, dynamic>? result = (await channel?.invokeMethod(
+      'createWebMessageChannel',
+      args,
+    ))?.cast<String, dynamic>();
+    final webMessageChannel = IOSWebMessageChannel.static().fromMap(result);
+    if (webMessageChannel != null) {
+      _webMessageChannels.add(webMessageChannel);
+    }
+    return webMessageChannel;
+  }
+
+  @override
+  Future<void> postWebMessage({
+    required AqutterWebMessage message,
+    AqutterWebUri? targetOrigin,
+  }) async {
+    if (targetOrigin == null) {
+      targetOrigin = AqutterWebUri('');
+    }
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('message', () => message.toMap());
+    args.putIfAbsent('targetOrigin', () => targetOrigin.toString());
+    await channel?.invokeMethod('postWebMessage', args);
+  }
+
+  @override
+  Future<void> addWebMessageListener(
+    AqutterPlatformWebMessageListener webMessageListener,
+  ) async {
+    assert(
+      !_webMessageListeners.contains(webMessageListener),
+      "${webMessageListener} was already added.",
+    );
+    assert(
+      !_webMessageListenerObjNames.contains(
+        webMessageListener.params.jsObjectName,
+      ),
+      "jsObjectName ${webMessageListener.params.jsObjectName} was already added.",
+    );
+    _webMessageListeners.add(webMessageListener as IOSWebMessageListener);
+    _webMessageListenerObjNames.add(webMessageListener.params.jsObjectName);
+
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('webMessageListener', () => webMessageListener.toMap());
+    await channel?.invokeMethod('addWebMessageListener', args);
+  }
+
+  @override
+  bool hasWebMessageListener(AqutterPlatformWebMessageListener webMessageListener) {
+    return _webMessageListeners.contains(webMessageListener) ||
+        _webMessageListenerObjNames.contains(
+          webMessageListener.params.jsObjectName,
+        );
+  }
+
+  @override
+  Future<bool> canScrollVertically() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('canScrollVertically', args) ??
+        false;
+  }
+
+  @override
+  Future<bool> canScrollHorizontally() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('canScrollHorizontally', args) ??
+        false;
+  }
+
+  @override
+  Future<void> reloadFromOrigin() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    await channel?.invokeMethod('reloadFromOrigin', args);
+  }
+
+  @override
+  Future<Uint8List?> createPdf({
+    @Deprecated("Use pdfConfiguration instead")
+    // ignore: deprecated_member_use_from_same_package
+    AqutterIOSWKPDFConfiguration? iosWKPdfConfiguration,
+    AqutterPDFConfiguration? pdfConfiguration,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent(
+      'pdfConfiguration',
+      () => pdfConfiguration?.toMap() ?? iosWKPdfConfiguration?.toMap(),
+    );
+    return await channel?.invokeMethod<Uint8List?>('createPdf', args);
+  }
+
+  @override
+  Future<Uint8List?> createWebArchiveData() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod('createWebArchiveData', args);
+  }
+
+  @override
+  Future<bool> hasOnlySecureContent() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('hasOnlySecureContent', args) ??
+        false;
+  }
+
+  @override
+  Future<void> pauseAllMediaPlayback() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod('pauseAllMediaPlayback', args);
+  }
+
+  @override
+  Future<void> setAllMediaPlaybackSuspended({required bool suspended}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent("suspended", () => suspended);
+    return await channel?.invokeMethod('setAllMediaPlaybackSuspended', args);
+  }
+
+  @override
+  Future<void> closeAllMediaPresentations() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod('closeAllMediaPresentations', args);
+  }
+
+  @override
+  Future<AqutterMediaPlaybackState?> requestMediaPlaybackState() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return AqutterMediaPlaybackState.fromNativeValue(
+      await channel?.invokeMethod('requestMediaPlaybackState', args),
+    );
+  }
+
+  @override
+  Future<bool> isInFullscreen() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<bool>('isInFullscreen', args) ?? false;
+  }
+
+  @override
+  Future<AqutterMediaCaptureState?> getCameraCaptureState() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return AqutterMediaCaptureState.fromNativeValue(
+      await channel?.invokeMethod('getCameraCaptureState', args),
+    );
+  }
+
+  @override
+  Future<void> setCameraCaptureState({required AqutterMediaCaptureState state}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('state', () => state.toNativeValue());
+    await channel?.invokeMethod('setCameraCaptureState', args);
+  }
+
+  @override
+  Future<AqutterMediaCaptureState?> getMicrophoneCaptureState() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return AqutterMediaCaptureState.fromNativeValue(
+      await channel?.invokeMethod('getMicrophoneCaptureState', args),
+    );
+  }
+
+  @override
+  Future<void> setMicrophoneCaptureState({
+    required AqutterMediaCaptureState state,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('state', () => state.toNativeValue());
+    await channel?.invokeMethod('setMicrophoneCaptureState', args);
+  }
+
+  @override
+  Future<void> loadSimulatedRequest({
+    required AqutterURLRequest urlRequest,
+    required Uint8List data,
+    AqutterURLResponse? urlResponse,
+  }) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('urlRequest', () => urlRequest.toMap());
+    args.putIfAbsent('data', () => data);
+    args.putIfAbsent('urlResponse', () => urlResponse?.toMap());
+    await channel?.invokeMethod('loadSimulatedRequest', args);
+  }
+
+  @override
+  Future<Uint8List?> saveState() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await channel?.invokeMethod<Uint8List?>('saveState', args);
+  }
+
+  @override
+  Future<bool> restoreState(Uint8List? state) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('state', () => state);
+    return await channel?.invokeMethod<bool>('restoreState', args) ?? false;
+  }
+
+  @override
+  Future<String> getDefaultUserAgent() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await _staticChannel.invokeMethod<String>(
+          'getDefaultUserAgent',
+          args,
+        ) ??
+        '';
+  }
+
+  @override
+  Future<bool> handlesURLScheme(String urlScheme) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('urlScheme', () => urlScheme);
+    return await _staticChannel.invokeMethod('handlesURLScheme', args);
+  }
+
+  @override
+  Future<void> disposeKeepAlive(AqutterWebViewKeepAlive keepAlive) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('keepAliveId', () => keepAlive.id);
+    await _staticChannel.invokeMethod('disposeKeepAlive', args);
+    _keepAliveMap[keepAlive] = null;
+  }
+
+  @override
+  Future<void> clearAllCache({bool includeDiskFiles = true}) async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('includeDiskFiles', () => includeDiskFiles);
+    await _staticChannel.invokeMethod('clearAllCache', args);
+  }
+
+  @override
+  Future<void> setJavaScriptBridgeName(String bridgeName) async {
+    assert(
+      RegExp(r'^[a-zA-Z_]\w*$').hasMatch(bridgeName),
+      'bridgeName must be a non-empty string with only alphanumeric and underscore characters. It can\'t start with a number.',
+    );
+    Map<String, dynamic> args = <String, dynamic>{};
+    args.putIfAbsent('bridgeName', () => bridgeName);
+    await _staticChannel.invokeMethod('setJavaScriptBridgeName', args);
+  }
+
+  @override
+  Future<String> getJavaScriptBridgeName() async {
+    Map<String, dynamic> args = <String, dynamic>{};
+    return await _staticChannel.invokeMethod<String>(
+          'getJavaScriptBridgeName',
+          args,
+        ) ??
+        '';
+  }
+
+  @override
+  Future<String> get tRexRunnerHtml async => await rootBundle.loadString(
+    'packages/aqutter_core/assets/t_rex_runner/t-rex.html',
+  );
+
+  @override
+  Future<String> get tRexRunnerCss async => await rootBundle.loadString(
+    'packages/aqutter_core/assets/t_rex_runner/t-rex.css',
+  );
+
+  @override
+  dynamic getViewId() {
+    return id;
+  }
+
+  @override
+  void dispose({bool isKeepAlive = false}) {
+    disposeChannel(removeMethodCallHandler: !isKeepAlive);
+    _browser = null;
+    webStorage.dispose();
+    if (!isKeepAlive) {
+      _controllerFromPlatform = null;
+      _javaScriptHandlersMap.clear();
+      _userScripts.clear();
+      _webMessageListenerObjNames.clear();
+      _injectedScriptsFromURL.clear();
+      for (final webMessageChannel in _webMessageChannels) {
+        webMessageChannel.dispose();
+      }
+      _webMessageChannels.clear();
+      for (final webMessageListener in _webMessageListeners) {
+        webMessageListener.dispose();
+      }
+      _webMessageListeners.clear();
+    }
+  }
+}
+
+extension AqutterInternalWebViewController on AqutterIOSWebViewControllerImpl {
+  get handleMethod => _handleMethod;
+}
