@@ -37,3 +37,4 @@ export 'package:aqutter_core/src/platform_interface/flutter_webview_platform_int
         MapSize,
         MapEdgeInsets;
 export 'src/main.dart';
+export 'src/nativeview/nativeview.dart';

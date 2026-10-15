@@ -25,7 +25,7 @@ dependencies:
   aqutter_core:
     git:
       url: https://github.com/Aqutter/aqutter_core.git
-      ref: 0.1.0 # 鎖定 tag
+      ref: 0.2.0 # 鎖定 tag
 ```
 
 ```dart
@@ -41,6 +41,10 @@ import 'package:aqutter_core/aqutter_core.dart';
 ```
 assets/packages/aqutter_core/assets/web/web_support.js
 ```
+
+## Native view 鏡像
+
+把 Flutter 內容（Widget 或 PlatformView，如地圖）即時鏡像到網頁 canvas，並接收網頁手勢回控，讓網頁能在原生內容之上疊 HTML。Dart 端 `AqutterMirror`，網頁端是 `@aqutter/aqutter` 的 `<aqutter-native>`；協定與限制見 [doc/nativeview.md](doc/nativeview.md)。
 
 ## 目錄結構
 
