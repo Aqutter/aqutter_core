@@ -161,15 +161,16 @@ class _AqutterNativeState extends State<AqutterNative> {
     }
   }
 
-  /// 擷取倍率：網頁回報了顯示尺寸就剛好擷取到網頁需要的像素數（含 devicePixelRatio），否則用 [AqutterNative.pixelRatio]。
+  /// 擷取倍率：網頁回報了顯示尺寸，就擷取到「與網頁元素同樣多的像素」（含 devicePixelRatio）；否則用 [AqutterNative.pixelRatio]。
+  ///
+  /// 以**面積**而非單邊算：被鏡像的對象與網頁元素長寬比不同時（例如全螢幕的畫面塞進一個小方框），
+  /// 單邊算法會把整個對象擷取成遠超過網頁能顯示的解析度。長寬比相同時兩者等價（剛好 1:1）。
   double _pixelRatioFor(Size size, AqutterNativeViewport? viewport) {
     if (viewport == null || size.isEmpty) {
       return widget.pixelRatio;
     }
-    final needed = math.max(
-      viewport.width * viewport.devicePixelRatio / size.width,
-      viewport.height * viewport.devicePixelRatio / size.height,
-    );
+    final targetPixels = viewport.width * viewport.height * viewport.devicePixelRatio * viewport.devicePixelRatio;
+    final needed = math.sqrt(targetPixels / (size.width * size.height));
     return needed.clamp(0.25, widget.maxPixelRatio);
   }
 
