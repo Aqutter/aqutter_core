@@ -11,6 +11,9 @@ class AqutterNativeStats {
   final Map<String, double> _sums = {};
   final Map<String, int> _counts = {};
   int _frames = 0;
+
+  /// 目前的自適應解析度倍率（只用於輸出）。
+  double scale = 1.0;
   int _bytes = 0;
   final Stopwatch _window = Stopwatch()..start();
 

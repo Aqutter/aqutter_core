@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
+import 'native_adaptive.dart';
 import 'native_frame.dart';
 import 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart';
 import 'native_session.dart';
@@ -28,6 +29,9 @@ class AqutterNative extends StatefulWidget {
     this.pixelRatio = 1.5,
     this.maxPixelRatio = 3.0,
     this.skipUnchanged = true,
+    this.adaptive = AqutterNativeAdaptive.off,
+    this.minScale = 0.5,
+    this.settleDelay = const Duration(milliseconds: 250),
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeViewTypeContains,
@@ -47,6 +51,15 @@ class AqutterNative extends StatefulWidget {
 
   /// 依網頁尺寸擷取時的倍率上限，避免高密度螢幕上把畫面擷取得比原生內容還細。
   final double maxPixelRatio;
+
+  /// 擷取跟不上目標幀率時的處理方式，見 [AqutterNativeAdaptive]。預設關閉。
+  final AqutterNativeAdaptive adaptive;
+
+  /// [AqutterNativeAdaptive.resolution] 的解析度倍率下限（線性）。
+  final double minScale;
+
+  /// 內容停止變動多久後補一幀完整解析度的定格幀（僅在目前解析度低於完整時）。
+  final Duration settleDelay;
 
   /// 內容沒有重繪時跳過擷取（閒置時不耗 CPU 與頻寬）。
   ///
@@ -72,6 +85,10 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 上一次擷取時的重繪次數；沒變代表畫面沒變。
   int _lastPaintCount = -1;
 
+  late AqutterNativeScaler _scaler = AqutterNativeScaler(minScale: widget.minScale);
+  final Stopwatch _sinceChange = Stopwatch()..start();
+  bool _settled = true;
+
   @override
   void initState() {
     super.initState();
@@ -85,7 +102,9 @@ class _AqutterNativeState extends State<AqutterNative> {
         || oldWidget.fps != widget.fps
         || oldWidget.format != widget.format
         || oldWidget.pixelRatio != widget.pixelRatio
-        || oldWidget.nativeCapture != widget.nativeCapture;
+        || oldWidget.nativeCapture != widget.nativeCapture
+        || oldWidget.adaptive != widget.adaptive
+        || oldWidget.minScale != widget.minScale;
     if (changed) {
       _unregister();
       _register();
@@ -93,6 +112,7 @@ class _AqutterNativeState extends State<AqutterNative> {
   }
 
   void _register() {
+    _scaler = AqutterNativeScaler(minScale: widget.minScale);
     final session = AqutterNativeSession(
       id: widget.sessionId,
       fps: widget.fps,
@@ -145,13 +165,33 @@ class _AqutterNativeState extends State<AqutterNative> {
       return null;
     }
     final paintCount = box.paintCount;
-    if (widget.skipUnchanged && !forced && paintCount == _lastPaintCount) {
-      return null;
+    final changed = paintCount != _lastPaintCount;
+    final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
+    var settleFrame = false;
+    if (widget.skipUnchanged && !forced && !changed) {
+      // 內容停了：解析度被降過就補一幀完整解析度的定格幀，靜止的畫面才會清楚
+      final needsSettle = adaptive && _scaler.scale < 1.0 && !_settled && _sinceChange.elapsed >= widget.settleDelay;
+      if (!needsSettle) {
+        return null;
+      }
+      settleFrame = true;
     }
     _lastPaintCount = paintCount;
+    if (changed) {
+      _sinceChange
+        ..reset()
+        ..start();
+      _settled = false;
+    }
+    if (settleFrame) {
+      _settled = true;
+    }
+    final scale = adaptive && !settleFrame ? _scaler.scale : 1.0;
+    session.stats.scale = _scaler.scale;
+    final totalWatch = Stopwatch()..start();
 
     final imageWatch = Stopwatch()..start();
-    final image = await box.toImage(pixelRatio: _pixelRatioFor(box.size, session.viewport));
+    final image = await box.toImage(pixelRatio: (_pixelRatioFor(box.size, session.viewport) * scale).clamp(0.25, widget.maxPixelRatio));
     session.stats.add('toImage', imageWatch);
     try {
       final byteFormat = widget.format == AqutterNativeFormat.png
@@ -162,6 +202,9 @@ class _AqutterNativeState extends State<AqutterNative> {
       session.stats.add('toByteData', readWatch);
       if (data == null) {
         return null;
+      }
+      if (adaptive && !settleFrame && changed) {
+        _scaler.record(totalWatch.elapsedMicroseconds / 1000, 1000 / widget.fps * 0.9);
       }
       return AqutterNativeFrame(
         width: image.width,
