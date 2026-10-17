@@ -39,6 +39,17 @@ The build system automatically selects the backend:
 
 > **Note:** WPEPlatform and WPEBackend-FDO are **mutually exclusive** at compile time. You cannot use both simultaneously.
 
+## Distribution availability (verified)
+
+The runtime and development packages must both exist on the machine that builds **and** on the machine that runs the app (the app links `libwpewebkit-2.0` dynamically).
+
+| Distribution | WPE packages in the archive | Notes |
+|---|---|---|
+| Debian 13 (trixie) | `libwpewebkit-2.0-dev` 2.48.3, `libwpe-1.0-dev`, `libwpebackend-fdo-1.0-dev` | Builds with the legacy WPEBackend-FDO path (WPEPlatform needs 2.50+). Verified: builds, launches under Xvfb, renders pages. |
+| Debian sid | `libwpewebkit-2.0-dev` 2.54.x | |
+| Ubuntu 22.04 | `libwpewebkit-1.0-dev` 2.36 (universe) | Old 1.0 API. |
+| Ubuntu 26.04 | **none** (only WebKitGTK 2.52) | Neither builds nor runs the app. Build WPE from source and ship its libraries with the app, or distribute through Flatpak (unverified). There is no official PPA, and the `wpe-webkit-kiosk` snaps are kiosk browsers, not linkable libraries. |
+
 ## Installation Options
 
 You can either:

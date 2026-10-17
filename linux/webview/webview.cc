@@ -6208,6 +6208,10 @@ void AqutterWebView::setMicrophoneCaptureState(int state) {
 // === Theme Color ===
 
 std::optional<std::string> AqutterWebView::getMetaThemeColor() const {
+#if !WEBKIT_CHECK_VERSION(2, 50, 0)
+  // webkit_web_view_get_theme_color 在 WPE WebKit 2.50 才加入；舊版（例如 Debian 13 的 2.48）視為沒有主題色
+  return std::nullopt;
+#else
   if (webview_ == nullptr) return std::nullopt;
   
   WebKitColor color;
@@ -6238,6 +6242,7 @@ std::optional<std::string> AqutterWebView::getMetaThemeColor() const {
   }
   
   return std::string(hexColor);
+#endif
 }
 
 // === Audio State (Playing and Mute) ===

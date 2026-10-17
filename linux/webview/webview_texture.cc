@@ -6,7 +6,7 @@
 #include "webview.h"
 
 // Private structure
-struct Aqutter_WebViewTexture {
+struct _AqutterWebViewTexture {
   FlPixelBufferTexture parent_instance;
   aqutter_core_plugin::WebViewType* webview;
   // Default buffer for when no content is available

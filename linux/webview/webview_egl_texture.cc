@@ -31,7 +31,7 @@ static gboolean has_current_gl_context() {
  */
 
 // Private structure for the EGL texture
-struct Aqutter_WebViewEGLTexture {
+struct _AqutterWebViewEGLTexture {
   FlTextureGL parent_instance;
 
   // Reference to the webview (not owned)

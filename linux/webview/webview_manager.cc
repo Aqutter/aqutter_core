@@ -249,6 +249,11 @@ void AqutterWebViewManager::AqutterCreateWebView(FlMethodCall* method_call) {
 
   if (!keepAliveId.empty()) {
     platform_view->set_keep_alive_id(keepAliveId);
+    // Dart names a keep-alive controller's channel after the keep-alive id (see the Linux
+    // webview widget's _onPlatformViewCreated), not after the texture id the view was attached
+    // with. Re-attach under the keep-alive id so the controller reaches this webview, both now and
+    // when a later widget adopts it again.
+    webview->AttachChannel(messenger_, keepAliveId, false);
   }
 
   platform_views_[texture_id] = std::move(platform_view);

@@ -403,6 +403,89 @@ class _CustomPlatformViewState extends State<CustomPlatformView> {
     });
   }
 
+  /// 滑鼠／觸控事件的處理鏈。按下要先等原生焦點就緒才送出，期間若已放開，放開會比按下先處理，
+  /// 按鈕就卡在「按下」。有事件還在處理時，後面的事件排在它之後；沒有時（焦點已就緒的一般情況）同步處理，不增加延遲。
+  Future<void> _pointerChain = Future<void>.value();
+  int _pendingPointerTasks = 0;
+
+  void _inPointerOrder(FutureOr<void> Function() action) {
+    if (_pendingPointerTasks == 0) {
+      final result = action();
+      if (result is Future<void>) {
+        _trackPointerTask(result);
+      }
+      return;
+    }
+    _trackPointerTask(_pointerChain.then((_) => action()));
+  }
+
+  void _trackPointerTask(Future<void> task) {
+    _pendingPointerTasks += 1;
+    _pointerChain = task.catchError((Object _) {}).whenComplete(() => _pendingPointerTasks -= 1);
+  }
+
+  Future<void> _handlePointerDown(PointerDownEvent ev) async {
+      _reportSurfaceSize();
+
+      final needsFocus = !_focusNode.hasFocus;
+      if (needsFocus) {
+        // IMPORTANT: Set the native focus state BEFORE sending the click
+        // and AWAIT it to ensure WebKit has processed the focus change.
+        // Without awaiting, WebKit may receive the click before it has
+        // the focused activity state, causing the click to only activate
+        // the view rather than focusing the clicked element.
+        if (_controller.value.isInitialized) {
+          await _controller._setFocused(true);
+        }
+        _focusNode.requestFocus();
+      }
+
+      _pointerKind = ev.kind;
+      if (ev.kind == PointerDeviceKind.touch) {
+        // Handle touch event
+        _activeTouchPoints[ev.pointer] = ev.localPosition;
+        _sendTouchEvent(
+          0,
+          ev.pointer,
+          ev.localPosition,
+        ); // 0 = down
+        return;
+      }
+
+      // Update cursor position first
+      _controller._setCursorPos(ev.localPosition);
+
+      final button = _getButton(ev.buttons);
+      _downButtons[ev.pointer] = button;
+
+      // Detect double/triple click
+      final now = DateTime.now();
+      final timeSinceLastClick = _lastClickTime != null
+          ? now.difference(_lastClickTime!)
+          : const Duration(days: 1);
+      final distanceFromLastClick = _lastClickPosition != null
+          ? (ev.localPosition - _lastClickPosition!).distance
+          : double.infinity;
+
+      if (timeSinceLastClick < _doubleClickTimeout &&
+          distanceFromLastClick < _doubleClickDistance) {
+        _clickCount++;
+        if (_clickCount > 3) _clickCount = 1;
+      } else {
+        _clickCount = 1;
+      }
+
+      _lastClickTime = now;
+      _lastClickPosition = ev.localPosition;
+
+      // Send click with count for double/triple click
+      _controller._setPointerButtonStateWithClickCount(
+        AqutterWebViewPointerEventKind.down,
+        button,
+        _clickCount,
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -485,68 +568,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView> {
                   }
                   _controller._setCursorPos(ev.localPosition);
                 },
-                onPointerDown: (ev) async {
-                  _reportSurfaceSize();
-
-                  final needsFocus = !_focusNode.hasFocus;
-                  if (needsFocus) {
-                    // IMPORTANT: Set the native focus state BEFORE sending the click
-                    // and AWAIT it to ensure WebKit has processed the focus change.
-                    // Without awaiting, WebKit may receive the click before it has
-                    // the focused activity state, causing the click to only activate
-                    // the view rather than focusing the clicked element.
-                    if (_controller.value.isInitialized) {
-                      await _controller._setFocused(true);
-                    }
-                    _focusNode.requestFocus();
-                  }
-
-                  _pointerKind = ev.kind;
-                  if (ev.kind == PointerDeviceKind.touch) {
-                    // Handle touch event
-                    _activeTouchPoints[ev.pointer] = ev.localPosition;
-                    _sendTouchEvent(
-                      0,
-                      ev.pointer,
-                      ev.localPosition,
-                    ); // 0 = down
-                    return;
-                  }
-
-                  // Update cursor position first
-                  _controller._setCursorPos(ev.localPosition);
-
-                  final button = _getButton(ev.buttons);
-                  _downButtons[ev.pointer] = button;
-
-                  // Detect double/triple click
-                  final now = DateTime.now();
-                  final timeSinceLastClick = _lastClickTime != null
-                      ? now.difference(_lastClickTime!)
-                      : const Duration(days: 1);
-                  final distanceFromLastClick = _lastClickPosition != null
-                      ? (ev.localPosition - _lastClickPosition!).distance
-                      : double.infinity;
-
-                  if (timeSinceLastClick < _doubleClickTimeout &&
-                      distanceFromLastClick < _doubleClickDistance) {
-                    _clickCount++;
-                    if (_clickCount > 3) _clickCount = 1;
-                  } else {
-                    _clickCount = 1;
-                  }
-
-                  _lastClickTime = now;
-                  _lastClickPosition = ev.localPosition;
-
-                  // Send click with count for double/triple click
-                  _controller._setPointerButtonStateWithClickCount(
-                    AqutterWebViewPointerEventKind.down,
-                    button,
-                    _clickCount,
-                  );
-                },
-                onPointerUp: (ev) {
+                onPointerDown: (ev) => _inPointerOrder(() => _handlePointerDown(ev)),
+                onPointerUp: (ev) => _inPointerOrder(() {
                   _pointerKind = ev.kind;
                   if (ev.kind == PointerDeviceKind.touch) {
                     // Handle touch event
@@ -562,8 +585,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView> {
                       button,
                     );
                   }
-                },
-                onPointerCancel: (ev) {
+                }),
+                onPointerCancel: (ev) => _inPointerOrder(() {
                   _pointerKind = ev.kind;
                   if (ev.kind == PointerDeviceKind.touch) {
                     // Handle touch cancel
@@ -582,8 +605,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView> {
                       button,
                     );
                   }
-                },
-                onPointerMove: (ev) {
+                }),
+                onPointerMove: (ev) => _inPointerOrder(() {
                   _pointerKind = ev.kind;
                   if (ev.kind == PointerDeviceKind.touch) {
                     // Handle touch move
@@ -596,7 +619,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView> {
                     return;
                   }
                   _controller._setCursorPos(ev.localPosition);
-                },
+                }),
                 onPointerSignal: (signal) {
                   if (signal is PointerScrollEvent) {
                     _controller._setScrollDelta(
