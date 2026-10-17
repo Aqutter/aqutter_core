@@ -36,7 +36,7 @@ AqutterNative(
 
 ## 幀格式（Dart → 網頁，二進位）
 
-little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][payload]`，標頭 24 bytes。`seq` 是每個工作階段從 1 遞增的序號。
+一幀是**兩則**連續的二進位訊息：先標頭（24 bytes）、再像素（不把像素複製進同一個緩衝區，手機上複製數 MB 要花數毫秒）。WebSocket 保證順序，網頁端嚴格依「標頭、像素、標頭、像素…」交替解讀；重新連線時重新從標頭開始。標頭 little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)]`，`seq` 是每個工作階段從 1 遞增的序號。
 
 | fmt | payload |
 |---|---|
@@ -68,9 +68,11 @@ little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][pay
 |---|---|
 | 沒變就不擷取 | `AqutterNative` 內的 `RepaintBoundary` 會計數「真的重繪了幾次」；子樹沒重繪、也沒有新連線或解析度變動，這一輪就不擷取、不送出。閒置時 CPU 與頻寬接近 0。`skipUnchanged: false` 可關閉（內容以 Flutter 看不到的方式改變時）；`nativeCapture`（PlatformView）一律每輪擷取。 |
 | 依網頁尺寸擷取 | 網頁回報顯示尺寸後，擷取成「與網頁元素等面積」的像素數（含 devicePixelRatio；倍率上限 `maxPixelRatio`，預設 3）；回報前用 `pixelRatio`。以面積計算，被鏡像對象與網頁元素長寬比不同時也不會過度擷取；長寬比相同時剛好 1:1，建議兩者長寬比一致。 |
-| 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（2）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
+| 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（3）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
 | 同 id 取代 | 同一個 session id 再次註冊時，新的取代舊的並承接既有連線（Flutter 重建子樹時會短暫出現兩次）；舊的稍後 dispose 不影響新的。 |
 | 關閉 WebSocket 壓縮 | dart:io 的 WebSocket 預設會與瀏覽器協商 permessage-deflate，每幀數 MB 的原始像素都被 zlib 壓一次；host 以 `CompressionOptions.compressionOff` 關掉。macOS 實測 `send` 階段每幀 7.8ms → 1.5ms，幀率 42 → 55 fps（小元素）、26 → 48.5 fps（大元素）。 |
+| 自排程的擷取迴圈 | 不用固定週期的計時器，改成「做完一輪就立刻排下一輪，只在比目標間隔快時才補等」。擷取加送出若剛好略超過一個間隔（60 fps 的 16.6ms 對上 16.8ms），週期計時器會錯過下一個 tick，幀率被量化成 60／30 的混合；實機因此從約 46 fps 提升到約 57 fps。 |
+| 自適應解析度 | `adaptive: AqutterNativeAdaptive.resolution`（預設關閉）：連續幾幀擷取超過每幀預算才降低解析度倍率（有下限 `minScale`，預設 0.5）、連續很多幀都很快才升回；內容停止變動 `settleDelay`（250ms）後補一幀完整解析度的定格幀，靜止畫面維持清晰。 |
 | 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
 | 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；被取代的幀立刻回 `ack`。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
@@ -102,9 +104,24 @@ little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][pay
 | macOS，關壓縮後 | 727×280 | 3.1MB | 55 | 約 60 |
 | macOS，關壓縮前 | 727×480 | 5.3MB | 26 | 26 |
 | macOS，關壓縮後 | 727×480 | 5.3MB | 48.5 | 約 58 |
-| Android 模擬器 | 356×280 | 2.6MB | 10 | 10 |
+| Android 模擬器（debug） | 356×280 | 2.6MB | 10 | 10 |
+
+實機（Android 平板／手機，release，自適應解析度開啟，內容每個 animation frame 都改變）：
+
+| 版本 | 小元素（1107×280） | 大元素（1107×621） |
+|---|---|---|
+| 關閉壓縮前後、尚無自適應（debug 版曾被 `debugNeedsPaint` 拖慢，數字無效，不列） | — | — |
+| 加自適應與定格幀 | 41 fps（3.5MB/幀） | 36 fps（5.1MB/幀） |
+| 標頭與像素分兩則、未確認上限 3 | 48 | 41 |
+| 自排程擷取迴圈 | **54** | **51**（穩態送出約 57） |
+
+穩態下送出端約 57 fps，內容每秒重繪約 59 次，已追上內容的更新速度；平均較低的時段是內容本身只更新 45 到 51 次。
 
 macOS 的測試驅動每個 animation frame（約 60Hz）才改一次內容，所以約 60 fps 是這個測試的上限，不是管線的上限（單幀處理約 8–12ms）。曾試過讓兩個擷取重疊（流水線），macOS 上沒有可量到的差別（小元素 56.7、大元素 46.2 fps），因此沒有保留。
+
+## 量測要用 release
+
+debug 版在持續重繪時 `debugNeedsPaint` 常為真，擷取會被一再跳過，幀率遠低於 release（實機 debug 只有 3 到 5 fps）。效能數字一律以 release 為準。
 
 ## 現況與限制
 

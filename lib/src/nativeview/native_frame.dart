@@ -32,20 +32,22 @@ class AqutterNativeFrame {
 /// 幀標頭長度（bytes）。
 const int aqutterNativeHeaderLength = 24;
 
-/// 把幀編碼為 WebSocket 二進位訊息。
+/// 產生一幀的標頭（[aqutterNativeHeaderLength] bytes）。
 ///
-/// 版面（little-endian）：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][payload]`。
+/// 一幀以**兩則**連續的 WebSocket 二進位訊息送出：先標頭、再像素（不把像素複製到同一個緩衝區，
+/// 手機上複製數 MB 要花數毫秒）。WebSocket 保證順序，網頁端嚴格依「標頭、像素、標頭、像素…」交替解讀。
+///
+/// 標頭版面（little-endian）：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)]`。
 /// [seq] 為每個工作階段遞增的序號，網頁端據此丟棄亂序的舊幀並回覆確認（`ack`）。
 /// 網頁端（`@aqutter/aqutter` 的 `AqutterNative`）依同一版面解碼；兩端必須成對修改。
-Uint8List encodeAqutterNativeFrame(AqutterNativeFrame frame, {required int seq, required int sentAtMs}) {
-  final out = Uint8List(aqutterNativeHeaderLength + frame.payload.length);
-  final header = ByteData.view(out.buffer, 0, aqutterNativeHeaderLength);
+Uint8List encodeAqutterNativeFrameHeader(AqutterNativeFrame frame, {required int seq, required int sentAtMs}) {
+  final out = Uint8List(aqutterNativeHeaderLength);
+  final header = ByteData.view(out.buffer);
   header.setUint32(0, frame.width, Endian.little);
   header.setUint32(4, frame.height, Endian.little);
   header.setUint32(8, frame.format.wire, Endian.little);
   header.setUint32(12, seq & 0xFFFFFFFF, Endian.little);
   header.setFloat64(16, sentAtMs.toDouble(), Endian.little);
-  out.setRange(aqutterNativeHeaderLength, out.length, frame.payload);
   return out;
 }
 

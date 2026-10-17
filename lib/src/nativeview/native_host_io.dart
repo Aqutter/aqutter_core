@@ -10,7 +10,7 @@ import 'native_frame.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數。
-const int aqutterNativeMaxInFlight = 2;
+const int aqutterNativeMaxInFlight = 3;
 
 /// 網頁端連線所需的資訊；由 App 以 bridge 交給網頁。
 class AqutterNativeEndpoint {
@@ -80,7 +80,7 @@ class AqutterNativeHost {
     _sessions[session.id]?.dispose();
     _sessions[session.id] = session;
     session.attachTransport(
-      send: (frame) => _broadcast(session.id, frame),
+      send: (header, payload) => _broadcast(session.id, header, payload),
       canSend: () => _canSend(session.id),
     );
     session.clientCountChanged(_clients[session.id]?.length ?? 0, visible: _visibleCount(session.id));
@@ -110,14 +110,16 @@ class AqutterNativeHost {
     return sockets.any((socket) => (_inFlight[socket] ?? 0) < aqutterNativeMaxInFlight);
   }
 
-  void _broadcast(String id, Uint8List frame) {
+  void _broadcast(String id, Uint8List header, Uint8List payload) {
     for (final socket in List<WebSocket>.of(_clients[id] ?? const <WebSocket>{})) {
       final pending = _inFlight[socket] ?? 0;
       if (pending >= aqutterNativeMaxInFlight) {
         continue; // 這個連線還沒消化完，丟掉這一幀而不是堆在記憶體
       }
       _inFlight[socket] = pending + 1;
-      socket.add(frame);
+      // 標頭與像素分兩則送（省掉複製）；兩則之間不會插入其他幀，網頁端依序配對
+      socket.add(header);
+      socket.add(payload);
     }
   }
 

@@ -14,12 +14,16 @@ Future<({int frames, int bytes, int width})> _measure(WidgetTester tester, Strin
   await tester.runAsync(() async {
     final endpoint = await AqutterNativeHost.instance.ensureStarted();
     final socket = await WebSocket.connect('ws://127.0.0.1:${endpoint.port}/native/$id?token=${endpoint.token}');
+    var isHeader = true; // 一幀 = 標頭 + 像素兩則訊息
     socket.listen((data) {
       final list = data as List<int>;
-      frames += 1;
       bytes += list.length;
-      width = (list[0]) | (list[1] << 8) | (list[2] << 16) | (list[3] << 24);
-      socket.add(jsonEncode({'type': 'ack'}));
+      if (isHeader) {
+        frames += 1;
+        width = (list[0]) | (list[1] << 8) | (list[2] << 16) | (list[3] << 24);
+        socket.add(jsonEncode({'type': 'ack'}));
+      }
+      isHeader = !isHeader;
     });
     if (resize != null) {
       socket.add(jsonEncode({'type': 'resize', ...resize}));

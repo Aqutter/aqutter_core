@@ -165,6 +165,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       return null;
     }
     final paintCount = box.paintCount;
+    session.stats.paintCount(paintCount);
     final changed = paintCount != _lastPaintCount;
     final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     var settleFrame = false;
@@ -172,6 +173,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 內容停了：解析度被降過就補一幀完整解析度的定格幀，靜止的畫面才會清楚
       final needsSettle = adaptive && _scaler.scale < 1.0 && !_settled && _sinceChange.elapsed >= widget.settleDelay;
       if (!needsSettle) {
+        session.stats.unchanged();
         return null;
       }
       settleFrame = true;

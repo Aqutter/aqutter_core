@@ -7,23 +7,22 @@ import 'package:aqutter_core/aqutter_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('frame encoding', () {
-    test('writes a little-endian 24 byte header followed by the payload', () {
+  group('frame header encoding', () {
+    test('writes a little-endian 24 byte header', () {
       final frame = AqutterNativeFrame(
         width: 3,
         height: 2,
         format: AqutterNativeFormat.rgba,
         payload: Uint8List.fromList([1, 2, 3, 4]),
       );
-      final bytes = encodeAqutterNativeFrame(frame, seq: 7, sentAtMs: 1700000000000);
+      final bytes = encodeAqutterNativeFrameHeader(frame, seq: 7, sentAtMs: 1700000000000);
       final view = ByteData.sublistView(bytes);
-      expect(bytes.length, aqutterNativeHeaderLength + 4);
+      expect(bytes.length, aqutterNativeHeaderLength);
       expect(view.getUint32(0, Endian.little), 3);
       expect(view.getUint32(4, Endian.little), 2);
       expect(view.getUint32(8, Endian.little), 1);
       expect(view.getUint32(12, Endian.little), 7);
       expect(view.getFloat64(16, Endian.little), 1700000000000);
-      expect(bytes.sublist(aqutterNativeHeaderLength), [1, 2, 3, 4]);
     });
 
     test('png uses wire code 0', () {
@@ -59,8 +58,10 @@ void main() {
       final socket = await connect(endpoint, 'demo');
       addTearDown(() => socket.close());
 
-      final first = await socket.first as List<int>;
-      expect(first.sublist(aqutterNativeHeaderLength), [9, 8, 7, 255]);
+      // 一幀是兩則訊息：標頭、像素
+      final frameMessages = await socket.take(2).toList();
+      expect((frameMessages[0] as List<int>).length, aqutterNativeHeaderLength);
+      expect(frameMessages[1], [9, 8, 7, 255]);
 
       socket.add(jsonEncode({'type': 'tap', 'x': 0.25, 'y': 0.5}));
       final message = await messages.future.timeout(const Duration(seconds: 2));
@@ -134,18 +135,20 @@ void main() {
       final endpoint = await host.ensureStarted();
       final socket = await connect(endpoint, 'pressure');
       addTearDown(() => socket.close());
-      var frames = 0;
-      socket.listen((_) => frames += 1);
+      var messages = 0;
+      socket.listen((_) => messages += 1);
+      int frames() => messages ~/ 2; // 一幀 = 標頭 + 像素
 
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      expect(frames, aqutterNativeMaxInFlight);
+      expect(frames(), aqutterNativeMaxInFlight);
       // 沒有確認時擷取也停了（最多多一次已在進行中的）
       expect(captures, lessThanOrEqualTo(aqutterNativeMaxInFlight + 1));
 
-      socket.add(jsonEncode({'type': 'ack', 'seq': 1}));
-      socket.add(jsonEncode({'type': 'ack', 'seq': 2}));
+      for (var seq = 1; seq <= aqutterNativeMaxInFlight; seq++) {
+        socket.add(jsonEncode({'type': 'ack', 'seq': seq}));
+      }
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      expect(frames, aqutterNativeMaxInFlight * 2);
+      expect(frames(), aqutterNativeMaxInFlight * 2);
     });
 
     test('pauses capture while every client reports it is hidden, and resumes with a fresh frame', () async {
@@ -190,12 +193,16 @@ void main() {
       final socket = await connect(endpoint, 'seq');
       addTearDown(() => socket.close());
       final done = Completer<void>();
+      var isHeader = true;
       socket.listen((data) {
-        seqs.add(ByteData.sublistView(Uint8List.fromList(data as List<int>)).getUint32(12, Endian.little));
-        socket.add(jsonEncode({'type': 'ack', 'seq': seqs.last}));
-        if (seqs.length == 5) {
-          done.complete();
+        if (isHeader) {
+          seqs.add(ByteData.sublistView(Uint8List.fromList(data as List<int>)).getUint32(12, Endian.little));
+          socket.add(jsonEncode({'type': 'ack', 'seq': seqs.last}));
+          if (seqs.length == 5 && !done.isCompleted) {
+            done.complete();
+          }
         }
+        isHeader = !isHeader; // 標頭、像素交替
       });
       await done.future.timeout(const Duration(seconds: 2));
       expect(seqs, [1, 2, 3, 4, 5]);

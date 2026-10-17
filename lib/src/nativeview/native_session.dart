@@ -33,7 +33,7 @@ class AqutterNativeSession {
   final int fps;
 
   /// 送出一個二進位幀給所有連線；由 host 掛上。
-  void Function(Uint8List frame)? _send;
+  void Function(Uint8List header, Uint8List payload)? _send;
 
   /// 是否有任何連線還能接收新幀（未確認的幀沒超過上限）；由 host 掛上。
   bool Function()? _canSend;
@@ -50,14 +50,15 @@ class AqutterNativeSession {
 
   /// 網頁端最近回報的顯示尺寸；尚未回報為 null。
   AqutterNativeViewport? viewport;
-  Timer? _timer;
+  bool _loopRunning = false;
+  bool _disposed = false;
   bool _capturing = false;
 
   /// 最近一次擷取耗時（毫秒，指數平滑）；供除錯 / 效能觀察。
   double captureMs = 0;
 
   /// host 連上 / 斷開時呼叫。
-  void attachTransport({required void Function(Uint8List frame) send, required bool Function() canSend}) {
+  void attachTransport({required void Function(Uint8List header, Uint8List payload) send, required bool Function() canSend}) {
     _send = send;
     _canSend = canSend;
   }
@@ -106,20 +107,38 @@ class AqutterNativeSession {
 
   /// 有看得到的連線才跑擷取迴圈：沒人看到的畫面不該耗 CPU。
   void _syncTimer() {
-    if (_visibleClients > 0 && _timer == null) {
-      _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ fps), (_) => _tick());
+    if (_visibleClients > 0 && !_loopRunning && !_disposed) {
+      _loopRunning = true;
+      unawaited(_run());
     }
-    else if (_visibleClients == 0) {
-      _timer?.cancel();
-      _timer = null;
+  }
+
+  /// 擷取迴圈：做完一輪就立刻排下一輪，只在比目標間隔快時才補等。
+  ///
+  /// 不用固定週期的 `Timer.periodic`：擷取加送出若剛好略超過一個間隔（例如 60 fps 的 16.6ms 對上 16.8ms），
+  /// 週期計時器會錯過下一個 tick、被迫等到再下一個，幀率被量化成 60 / 30 的混合（實機量到約 46 fps）。
+  Future<void> _run() async {
+    final interval = Duration(microseconds: 1000000 ~/ fps);
+    final stopwatch = Stopwatch();
+    while (_visibleClients > 0 && !_disposed) {
+      stopwatch
+        ..reset()
+        ..start();
+      await _tick();
+      final remaining = interval - stopwatch.elapsed;
+      // 沒有剩餘時間也要讓出事件迴圈，UI 的畫面才有機會更新
+      await Future<void>.delayed(remaining > Duration.zero ? remaining : Duration.zero);
     }
+    _loopRunning = false;
   }
 
   bool get hasClients => _clients > 0;
 
   Future<void> _tick() async {
     // 沒人看、或所有連線都來不及處理（未確認的幀太多）時不擷取：多送只會在對方堆積
-    if (_capturing || _clients == 0 || !(_canSend?.call() ?? true)) {
+    final pressure = !(_canSend?.call() ?? true);
+    stats.tick(busy: _capturing, pressure: pressure);
+    if (_capturing || _clients == 0 || pressure) {
       return;
     }
     _capturing = true;
@@ -134,13 +153,11 @@ class AqutterNativeSession {
       final ms = stopwatch.elapsedMicroseconds / 1000;
       captureMs = captureMs == 0 ? ms : captureMs * 0.8 + ms * 0.2;
       _seq += 1;
-      final encodeWatch = Stopwatch()..start();
-      final message = encodeAqutterNativeFrame(frame, seq: _seq, sentAtMs: DateTime.now().millisecondsSinceEpoch);
-      stats.add('encode', encodeWatch);
+      final header = encodeAqutterNativeFrameHeader(frame, seq: _seq, sentAtMs: DateTime.now().millisecondsSinceEpoch);
       final sendWatch = Stopwatch()..start();
-      _send?.call(message);
+      _send?.call(header, frame.payload);
       stats.add('send', sendWatch);
-      stats.frameSent(message.length);
+      stats.frameSent(header.length + frame.payload.length);
     }
     catch (error) {
       debugPrint('[aqutter-native:$id] capture failed: $error');
@@ -154,8 +171,7 @@ class AqutterNativeSession {
   void handleMessage(AqutterNativeMessage message) => onMessage?.call(message);
 
   void dispose() {
-    _timer?.cancel();
-    _timer = null;
+    _disposed = true;
     _send = null;
     _canSend = null;
   }
