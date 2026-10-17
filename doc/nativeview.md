@@ -57,4 +57,5 @@ little-endian：`[w u32 | h u32 | fmt u32 | sentAt f64 (epoch ms)][payload]`，�
 ## 現況與限制
 
 - 傳輸為未壓縮 RGBA / PNG；H.264 + WebCodecs 管線尚未實作。
-- iOS 原生擷取、Android 的 PlatformView 擷取尚未在實機驗證。
+- 已驗證：macOS、Android 模擬器、iOS 模擬器上鏡像 Flutter widget（`RepaintBoundary` 路徑）、手勢回控。
+- 尚未驗證：iOS `drawHierarchy` 與 Android PlatformView 的擷取（需要地圖之類的 PlatformView）、實體裝置。

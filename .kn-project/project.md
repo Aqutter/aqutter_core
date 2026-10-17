@@ -87,7 +87,7 @@ gh repo set-default Aqutter/aqutter_core
   直接建置失敗。
 - iOS example 已採用 **UIScene 生命週期**（`UISceneDelegateClassName` 用 engine 內建的
   `FlutterSceneDelegate`，未新增 Swift 檔案、未改 `project.pbxproj` 結構）。
-- **已知未驗證**：實體 iOS 裝置、Linux。
+- **已知未驗證**：實體 iOS 裝置、Linux。native view 鏡像已在 macOS、Android 模擬器與 iOS 模擬器驗證（鏡像 Flutter widget 的 `RepaintBoundary` 路徑）；iOS `drawHierarchy` 擷取只確認編譯通過，尚未對 PlatformView 實跑。
 
 ### JS 橋接名稱
 
