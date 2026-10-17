@@ -238,3 +238,10 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 - 排除了「擷取與螢幕上同一幀搶光柵執行緒」的假設：內容移出視窗後成本沒有下降。
 - 擷取成本因此主要取決於被擷取區域的像素數與內容複雜度。已有的手段是自適應解析度（降低像素數）；除此之外，剩下的是降低內容本身的繪製量。
 - 尚未驗證：被鏡像的是 Android PlatformView（例如地圖）時，改用 `PixelCopy` 之類的原生擷取，可能比 `toImage` 快，但只適用於 PlatformView，不適用於 Flutter widget。
+
+
+## 自訂畫面來源（`captureOverride`）
+
+`RepaintBoundary.toImage` **擷取不到 Texture 與 PlatformView 的內容**：實測 Android 上的 Google 地圖（texture 模式）鏡像出來是完全透明的，連標記都沒有。這類內容若有自己的快照 API，用 `AqutterNative(captureOverride: …)` 把快照包成 `AqutterNativeFrame` 回傳（PNG 位元組可以直接當 `format: png` 的 payload）；擷取迴圈改成依 `fps` 輪詢，回傳 null 代表這一輪沒有新畫面。範例：[aqutter-plugin-google-maps](https://github.com/Aqutter/aqutter-plugin-google-maps) 用 `GoogleMapController.takeSnapshot()`。
+
+> 上文「Android 上的 PlatformView 可用 `RepaintBoundary` 擷取」的說法是錯的：它從未被驗證，現在實測證明擷取不到。

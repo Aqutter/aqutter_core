@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:aqutter_core/aqutter_core.dart';
 import 'package:flutter/widgets.dart';
@@ -101,5 +102,23 @@ void main() {
     addTearDown(tick.dispose);
     final result = await _measure(tester, 'aspect', const Duration(milliseconds: 600), resize: {'width': 100, 'height': 100, 'dpr': 1}, animate: tick);
     expect(result.width, 100);
+  });
+
+  testWidgets('captureOverride supplies the frames instead of the RepaintBoundary', (tester) async {
+    var calls = 0;
+    Future<AqutterNativeFrame?> snapshot() async {
+      calls += 1;
+      return AqutterNativeFrame(width: 2, height: 2, format: AqutterNativeFormat.png, payload: Uint8List.fromList(const [1, 2, 3]));
+    }
+
+    await tester.pumpWidget(host(AqutterNative(
+      sessionId: 'override',
+      fps: 60,
+      captureOverride: snapshot,
+      child: const ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()),
+    )));
+    final result = await _measure(tester, 'override', const Duration(milliseconds: 600));
+    expect(calls, greaterThan(3)); // 沒有「重繪計數沒變就跳過」：靠輪詢持續取畫面
+    expect(result.frames, greaterThan(3));
   });
 }

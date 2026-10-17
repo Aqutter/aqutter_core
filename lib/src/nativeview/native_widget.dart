@@ -38,6 +38,7 @@ class AqutterNative extends StatefulWidget {
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
+    this.captureOverride,
   });
 
   /// 與網頁端 `session` 屬性一致；同時掛了兩個相同 id 時，後掛上的取代先掛上的。
@@ -91,6 +92,14 @@ class AqutterNative extends StatefulWidget {
   /// 預設關閉。開啟後 `pointer` 訊息仍會經 [onMessage] 通知。滑鼠與觸控筆以觸控注入。
   final bool injectPointers;
 
+  /// 自訂畫面來源，取代內建的 `RepaintBoundary`／原生擷取。
+  ///
+  /// `RepaintBoundary.toImage` 抓不到 Texture 與 PlatformView 的內容（Android 上的地圖就是透明的）；
+  /// 這類內容若有自己的快照 API（例如 `GoogleMapController.takeSnapshot`），用這個參數把快照包成幀回傳。
+  /// 使用後 [skipUnchanged]、[adaptive]、[pixelRatio] 都不再作用（畫面來源完全由呼叫端決定），
+  /// 擷取迴圈改成依 [fps] 輪詢；回傳 null 代表這一輪沒有新畫面。
+  final AqutterNativeFrameCapture? captureOverride;
+
   @override
   State<AqutterNative> createState() => _AqutterNativeState();
 }
@@ -123,7 +132,8 @@ class _AqutterNativeState extends State<AqutterNative> {
         || oldWidget.nativeCapture != widget.nativeCapture
         || oldWidget.adaptive != widget.adaptive
         || oldWidget.minScale != widget.minScale
-        || oldWidget.matchViewportAspect != widget.matchViewportAspect;
+        || oldWidget.matchViewportAspect != widget.matchViewportAspect
+        || oldWidget.captureOverride != widget.captureOverride;
     if (changed) {
       _unregister();
       _register();
@@ -136,8 +146,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       id: widget.sessionId,
       fps: widget.fps,
       // 以 RepaintBoundary 擷取時，內容重繪會喚醒擷取迴圈；PlatformView 的原生擷取沒有變動通知，需要輪詢
-      eventDriven: !(widget.nativeCapture && AqutterNativeCapture.isSupported),
-      capture: _capture,
+      eventDriven: widget.captureOverride == null && !(widget.nativeCapture && AqutterNativeCapture.isSupported),
+      capture: widget.captureOverride ?? _capture,
       // 讀 widget.onMessage 而非捕捉當下值：父層重建後換了 callback 也不必重註冊
       onMessage: (message) {
         if (widget.injectPointers && message.type == 'pointer') {
