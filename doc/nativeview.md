@@ -52,7 +52,16 @@ AqutterNative(
 | `tap` / `doubleTap` / `longPress` | `x`, `y` |
 | `pan` | `phase`（`start` / `update` / `end`）、`x`, `y`、`dx`, `dy`（自上一個事件的位移） |
 | `pinch` | `phase`、`scale`（自 pinch 開始的累計倍率）、`x`, `y`（兩指中心） |
+| `pointer` | `phase`（`down` / `move` / `up` / `cancel`）、`id`（網頁的 pointerId）、`x`, `y`、`t`（事件的硬體時間戳，毫秒）、`pointerType`；只在網頁 `input="pointers"`（或 `both`）時送出 |
 | `command` | `name`、`args`（自訂；網頁以 `send` 送出） |
+
+### 原始指標事件注入
+
+`AqutterNative(injectPointers: true)` 會把 `pointer` 訊息注入 `child`：只對被鏡像的子樹做 hit test（不走整個 App 的 hit test，鏡像通常墊在 WebView 之下，全域 hit test 會先撞到上面的 WebView），每個指標在按下時 hit test 一次並記住路徑，移動與放開沿用，與 Flutter 自己的行為一致。因此 `GestureDetector`、`ScaleGestureRecognizer`、地圖手勢都照常運作，連點、長按、多指縮放都由 Flutter 判斷。
+
+- 網頁的 pointerId 會對應成不與真實觸控衝突的內部 id；滑鼠與觸控筆以觸控注入（主要按鍵）。
+- 與語意手勢（`tap` / `pan` / `pinch`）互斥或並用由網頁的 `input` 屬性決定，見 aqutter 文件。
+- Flutter 的 `onTap` 在同時註冊 `onDoubleTap` 時會等約 300 ms 才觸發，這是標準行為，語意手勢（網頁判斷）沒有這個延遲。
 
 另有兩種協定內部訊息，由 host 處理、**不會**轉給 `onMessage`：
 

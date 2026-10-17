@@ -8,3 +8,4 @@ export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessag
 export 'native_widget.dart' show AqutterNative;
 export 'native_adaptive.dart' show AqutterNativeAdaptive, AqutterNativeScaler;
 export 'native_capture.dart' show AqutterNativeCapture;
+export 'native_pointer.dart' show AqutterNativePointerInjector;
