@@ -18,6 +18,7 @@ import com.github.aqutter.core.webview.AqutterWebViewManager
 import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding
+import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.BinaryMessenger
@@ -65,6 +66,7 @@ open class AqutterCorePlugin : FlutterPlugin, ActivityAware {
   var activity: Activity? = null
   @JvmField
   var flutterView: FlutterView? = null
+  private var nativeCapture: AqutterNativeCapture? = null
 
   override fun onAttachedToEngine(binding: FlutterPluginBinding) {
     this.flutterAssets = binding.flutterAssets
@@ -82,6 +84,9 @@ open class AqutterCorePlugin : FlutterPlugin, ActivityAware {
     this.activity = activity
     this.messenger = messenger
     this.flutterView = flutterView
+
+    nativeCapture = AqutterNativeCapture(this)
+    MethodChannel(messenger, AqutterNativeCapture.CHANNEL_NAME).setMethodCallHandler(nativeCapture)
 
     aqutterBrowserManager = AqutterBrowserManager(this)
     headlessAqutterWebViewManager = AqutterHeadlessWebViewManager(this)
@@ -111,6 +116,8 @@ open class AqutterCorePlugin : FlutterPlugin, ActivityAware {
   }
 
   override fun onDetachedFromEngine(binding: FlutterPluginBinding) {
+    MethodChannel(binding.binaryMessenger, AqutterNativeCapture.CHANNEL_NAME).setMethodCallHandler(null)
+    nativeCapture = null
     if (platformUtil != null) {
       platformUtil?.dispose()
       platformUtil = null

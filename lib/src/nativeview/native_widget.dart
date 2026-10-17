@@ -72,7 +72,7 @@ class AqutterNative extends StatefulWidget {
   final bool skipUnchanged;
   final AqutterNativeFormat format;
 
-  /// 在 iOS 以原生 `drawHierarchy` 擷取（PlatformView 用）；其他平台忽略。
+  /// 以原生方式擷取（Texture 與 PlatformView 用，如地圖）：iOS 用 `drawHierarchy`，Android 用 `PixelCopy`；其他平台忽略。
   final bool nativeCapture;
 
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
@@ -195,6 +195,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       return AqutterNativeCapture.capture(
         origin & box.size,
         viewTypeContains: widget.nativeViewTypeContains,
+        pixelRatio: _pixelRatioFor(box.size, session.viewport),
       );
     }
     // 開發模式下尚未繪製就 toImage 會觸發斷言；release 沒有這個旗標，故以 kReleaseMode 守住。

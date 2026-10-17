@@ -245,3 +245,12 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 `RepaintBoundary.toImage` **擷取不到 Texture 與 PlatformView 的內容**：實測 Android 上的 Google 地圖（texture 模式）鏡像出來是完全透明的，連標記都沒有。這類內容若有自己的快照 API，用 `AqutterNative(captureOverride: …)` 把快照包成 `AqutterNativeFrame` 回傳（PNG 位元組可以直接當 `format: png` 的 payload）；擷取迴圈改成依 `fps` 輪詢，回傳 null 代表這一輪沒有新畫面。範例：[aqutter-plugin-google-maps](https://github.com/Aqutter/aqutter-plugin-google-maps) 用 `GoogleMapController.takeSnapshot()`。
 
 > 上文「Android 上的 PlatformView 可用 `RepaintBoundary` 擷取」的說法是錯的：它從未被驗證，現在實測證明擷取不到。
+
+
+## Android 原生擷取（`nativeCapture`）
+
+`AqutterNative(nativeCapture: true)` 在 Android 直接擷取被鏡像的 `TextureView` 或 `SurfaceView`：在視窗的 view 階層裡找與目標區域重疊最多者（不含 WebView 內部），`TextureView` 用 `getBitmap`、`SurfaceView` 用 `PixelCopy`。實測 Google 地圖（texture 模式）可用，約 15 fps、每幀約 10 MB（滿版 3200 像素寬）。
+
+- **不能複製 Flutter 自己的繪圖表面**：Impeller 以 Vulkan 呈現時，對它做 `PixelCopy` 回 `ERROR_SOURCE_NO_DATA`。
+- **不能靠類名找 view**：release 版 R8 會把 Flutter 的類別混淆（實測 `FlutterSurfaceView` 變成 `rk`），所以只用型別與位置判斷。
+- 需要 API 26 以上（`PixelCopy`）。輸出是預乘 alpha 的 ARGB_8888，被擷取的 view 本身不透明時與 straight alpha 相同。
