@@ -15,13 +15,16 @@ Future<({int frames, int bytes, int width})> _measure(WidgetTester tester, Strin
     final endpoint = await AqutterNativeHost.instance.ensureStarted();
     final socket = await WebSocket.connect('ws://127.0.0.1:${endpoint.port}/native/$id?token=${endpoint.token}');
     var isHeader = true; // 一幀 = 標頭 + 像素兩則訊息
+    var closing = false; // 關閉連線後不能再回 ack
     socket.listen((data) {
       final list = data as List<int>;
       bytes += list.length;
       if (isHeader) {
         frames += 1;
         width = (list[0]) | (list[1] << 8) | (list[2] << 16) | (list[3] << 24);
-        socket.add(jsonEncode({'type': 'ack'}));
+        if (!closing) {
+          socket.add(jsonEncode({'type': 'ack'}));
+        }
       }
       isHeader = !isHeader;
     });
@@ -36,6 +39,7 @@ Future<({int frames, int bytes, int width})> _measure(WidgetTester tester, Strin
       }
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
+    closing = true;
     await socket.close();
     // 等伺服器端處理完斷線：否則 widget dispose 時 host 還會去關這個連線，在 fake async 下留下計時器
     await Future<void>.delayed(const Duration(milliseconds: 150));

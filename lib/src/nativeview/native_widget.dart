@@ -161,10 +161,15 @@ class _AqutterNativeState extends State<AqutterNative> {
         viewTypeContains: widget.nativeViewTypeContains,
       );
     }
-    // 開發模式下尚未繪製就 toImage 會觸發斷言；release 沒有這個旗標，故以 kReleaseMode 守住
+    // 開發模式下尚未繪製就 toImage 會觸發斷言；release 沒有這個旗標，故以 kReleaseMode 守住。
+    // 內容持續重繪時 debug 版常落在「已標記、尚未繪製」的空檔：直接放棄這一輪會讓 debug 幀率遠低於 release
+    // （實機 debug 只有 3 到 5 fps），所以先等下一幀畫完再試一次。
     if (!kReleaseMode && box.debugNeedsPaint) {
-      session.markDirty();
-      return null;
+      await WidgetsBinding.instance.endOfFrame.timeout(const Duration(milliseconds: 50), onTimeout: () {});
+      if (box.debugNeedsPaint) {
+        session.markDirty();
+        return null;
+      }
     }
     final paintCount = box.paintCount;
     session.stats.paintCount(paintCount);
