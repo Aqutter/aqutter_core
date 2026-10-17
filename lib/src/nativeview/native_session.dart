@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'native_frame.dart';
 
 /// 擷取一幀；回 null 表示這一輪沒有可送的畫面（尚未繪製、擷取失敗等）。
-typedef AqutterNativeCapture = Future<AqutterNativeFrame?> Function();
+typedef AqutterNativeFrameCapture = Future<AqutterNativeFrame?> Function();
 
 /// 網頁端訊息的處理者。
 typedef AqutterNativeMessageHandler = void Function(AqutterNativeMessage message);
@@ -25,7 +25,7 @@ class AqutterNativeSession {
   /// 與網頁端 `<aqutter-native session="…">` 一致的識別字。
   final String id;
 
-  final AqutterNativeCapture capture;
+  final AqutterNativeFrameCapture capture;
   final AqutterNativeMessageHandler? onMessage;
 
   /// 目標幀率（擷取較慢時實際會更低，不會堆積）。
