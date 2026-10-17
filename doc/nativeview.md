@@ -132,3 +132,35 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 - 傳輸為未壓縮 RGBA / PNG；H.264 + WebCodecs 管線尚未實作。
 - 已驗證：macOS、Android 模擬器、iOS 模擬器上鏡像 Flutter widget（`RepaintBoundary` 路徑）、手勢回控。
 - 尚未驗證：iOS `drawHierarchy` 與 Android PlatformView 的擷取（需要地圖之類的 PlatformView）、實體裝置。
+
+## H.264 評估（結論：目前不做）
+
+把 RGBA 原始像素換成 H.264 串流，能省多少、要付出什麼。數據來自 Android 平板（Brave，Chromium 155）上的 WebCodecs 實測，用瀏覽器端的硬體編碼器近似原生端的編碼成本；不是 App 內的 WebView，也不是原生 MediaCodec，只能當量級參考。
+
+| 項目 | 現況（RGBA） | H.264（12 Mbps、硬體、即時） |
+|---|---|---|
+| 每幀大小 | 2.5 到 5 MB | 簡單畫面 2 到 3 KB；地圖類複雜畫面平均 26 KB，關鍵幀 130 到 150 KB |
+| 網頁端繪製 | `putImageData` 0.2 到 2.2 ms | 解碼＋`drawImage` 約 3 到 5 ms（管線化後的吞吐） |
+| 加進來的延遲 | 0 | 編碼 31 到 41 ms ＋ 解碼繪製 9 到 12 ms（逐幀、不排隊） |
+| 解析度限制 | 無 | 寬高須為偶數（實測奇數寬 1523 無法編碼），編碼前要補齊 |
+
+這個鏡像的瓶頸不在傳輸或網頁繪製，所以換 H.264 不會讓幀率變高：
+
+- Android 每幀約 27 到 37 ms 的擷取，其中把畫面從 GPU 讀回記憶體（`toByteData`）占 19 到 26 ms。H.264 仍要先拿到像素才能編碼，這段不會消失。
+- localhost 傳輸約 2 ms，網頁 `putImageData` 約 1 ms，省下的只有這兩項。
+- 延遲反而增加約 25 到 35 ms，對「點擊要立刻有回應」的互動不利。
+
+何時值得做：
+
+- 鏡像要走**網路**（遠端除錯、非 localhost）時，每幀幾 MB 不可行，壓縮是必要的。
+- 元素接近全螢幕或 4K，原始像素的記憶體頻寬與耗電成為問題時。
+- 目標是降低手機的耗電與發熱，而不是提高 fps。
+
+若要做，建議的設計：
+
+1. 協定新增 `fmt=2`（H.264 Annex B）；網頁在連線時以 `capabilities` 告知是否支援 WebCodecs，不支援就維持 RGBA。
+2. 只在 Android（MediaCodec）與 iOS／macOS（VideoToolbox）實作；Windows 與 Linux 維持 RGBA（編碼器要另外整合，且 WPE 的 WebCodecs 支援未驗證）。
+3. 現有的「停止變動後補一幀完整解析度」改成補一幀無損（RGBA 或 PNG），文字邊緣不會殘留壓縮痕跡。
+4. 新連線、尺寸改變時強制關鍵幀；寬高補成偶數，網頁端裁回。
+
+在那之前，更值得先做的是降低讀回的成本（目前 Android 的真正瓶頸），例如只讀回變動區域，或評估能否避開 CPU 讀回。
