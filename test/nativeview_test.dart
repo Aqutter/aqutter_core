@@ -37,7 +37,7 @@ void main() {
     tearDown(() => host.stop());
 
     Future<WebSocket> connect(AqutterNativeEndpoint endpoint, String id, {String? token}) {
-      return WebSocket.connect('ws://127.0.0.1:${endpoint.port}/mirror/$id?token=${token ?? endpoint.token}');
+      return WebSocket.connect('ws://127.0.0.1:${endpoint.port}/native/$id?token=${token ?? endpoint.token}');
     }
 
     test('streams captured frames to a connected client and routes messages back', () async {

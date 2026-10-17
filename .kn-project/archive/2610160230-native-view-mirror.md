@@ -9,7 +9,7 @@
 直接推送 `main`，未使用 issue、PR、milestone 或版本分支。
 
 ## Cross-Repo Scope
-`Aqutter/aqutter`：shell 新增 bridge handler `native_mirror_endpoint` 與 plugin 的 underlay slot，client 新增 `<aqutter-native>` 與 `NativeMirror`。
+`Aqutter/aqutter`：shell 新增 bridge handler `native_endpoint` 與 plugin 的 underlay slot，client 新增 `<aqutter-native>` 與 `AqutterNative`。
 
 ## Key Decisions
 - **傳輸**：localhost WebSocket，二進位幀（20 bytes 標頭 + 未壓縮 RGBA / PNG）；H.264 / WebCodecs 管線暫不做。

@@ -77,7 +77,7 @@ class AqutterNativeSession {
       _send?.call(encodeAqutterNativeFrame(frame, sentAtMs: DateTime.now().millisecondsSinceEpoch));
     }
     catch (error) {
-      debugPrint('[aqutter-mirror:$id] capture failed: $error');
+      debugPrint('[aqutter-native:$id] capture failed: $error');
     }
     finally {
       _capturing = false;

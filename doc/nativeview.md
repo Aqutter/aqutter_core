@@ -5,7 +5,7 @@
 ```
 Flutter：[被鏡像的內容]──擷取──▶ AqutterNativeSession ──▶ AqutterNativeHost（localhost WebSocket）
                                                               │ 二進位幀 ▲ JSON 訊息
-網頁：   <aqutter-native session="…"> ◀── NativeMirror（canvas 繪製 + 手勢辨識）
+網頁：   <aqutter-native session="…"> ◀── AqutterNative（canvas 繪製 + 手勢辨識）
 ```
 
 ## Dart 端
@@ -32,7 +32,7 @@ AqutterNative(
 
 ## 連線與安全
 
-路徑：`ws://127.0.0.1:<port>/mirror/<sessionId>?token=<token>`。令牌每次啟動隨機產生，經 bridge handler `native_mirror_endpoint` 交給網頁；令牌錯誤或工作階段不存在一律回 403。localhost 上的其他程式因此無法冒連。網頁的 CSP 需允許 `connect-src ws://127.0.0.1:*`。
+路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。令牌每次啟動隨機產生，經 bridge handler `native_endpoint` 交給網頁；令牌錯誤或工作階段不存在一律回 403。localhost 上的其他程式因此無法冒連。網頁的 CSP 需允許 `connect-src ws://127.0.0.1:*`。
 
 ## 幀格式（Dart → 網頁，二進位）
 

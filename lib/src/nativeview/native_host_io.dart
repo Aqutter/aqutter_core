@@ -23,7 +23,7 @@ class AqutterNativeEndpoint {
 
 /// 內嵌的 localhost WebSocket 伺服器：把各 [AqutterNativeSession] 的幀送給網頁，並把網頁訊息送回。
 ///
-/// 連線路徑：`ws://127.0.0.1:<port>/mirror/<sessionId>?token=<token>`。
+/// 連線路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。
 /// 單例；第一次 [ensureStarted] 時以暫時埠啟動。
 class AqutterNativeHost {
   AqutterNativeHost._();
@@ -53,7 +53,7 @@ class AqutterNativeHost {
     _server = server;
     _endpoint = AqutterNativeEndpoint(port: server.port, token: token);
     server.listen(_onRequest);
-    debugPrint('[aqutter-mirror] ws server on ws://127.0.0.1:${server.port}');
+    debugPrint('[aqutter-native] ws server on ws://127.0.0.1:${server.port}');
     return _endpoint!;
   }
 
@@ -93,7 +93,7 @@ class AqutterNativeHost {
     final valid = endpoint != null
         && WebSocketTransformer.isUpgradeRequest(request)
         && segments.length == 2
-        && segments[0] == 'mirror'
+        && segments[0] == 'native'
         && request.uri.queryParameters['token'] == endpoint.token
         && _sessions.containsKey(segments[1]);
     if (!valid) {
@@ -138,7 +138,7 @@ class AqutterNativeHost {
       _sessions[id]?.handleMessage(AqutterNativeMessage(type, decoded));
     }
     catch (error) {
-      debugPrint('[aqutter-mirror:$id] bad message: $error');
+      debugPrint('[aqutter-native:$id] bad message: $error');
     }
   }
 

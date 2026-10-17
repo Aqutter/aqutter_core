@@ -35,7 +35,7 @@ const int aqutterNativeHeaderLength = 20;
 /// 把幀編碼為 WebSocket 二進位訊息。
 ///
 /// 版面（little-endian）：`[w u32 | h u32 | fmt u32 | sentAt f64 (epoch ms)][payload]`。
-/// 網頁端（`@aqutter/aqutter` 的 `NativeMirror`）依同一版面解碼；兩端必須成對修改。
+/// 網頁端（`@aqutter/aqutter` 的 `AqutterNative`）依同一版面解碼；兩端必須成對修改。
 Uint8List encodeAqutterNativeFrame(AqutterNativeFrame frame, {required int sentAtMs}) {
   final out = Uint8List(aqutterNativeHeaderLength + frame.payload.length);
   final header = ByteData.view(out.buffer, 0, aqutterNativeHeaderLength);
