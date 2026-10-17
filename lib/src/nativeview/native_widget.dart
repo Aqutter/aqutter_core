@@ -116,6 +116,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     final session = AqutterNativeSession(
       id: widget.sessionId,
       fps: widget.fps,
+      // 以 RepaintBoundary 擷取時，內容重繪會喚醒擷取迴圈；PlatformView 的原生擷取沒有變動通知，需要輪詢
+      eventDriven: !(widget.nativeCapture && AqutterNativeCapture.isSupported),
       capture: _capture,
       // 讀 widget.onMessage 而非捕捉當下值：父層重建後換了 callback 也不必重註冊
       onMessage: (message) => widget.onMessage?.call(message),
@@ -241,7 +243,11 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   @override
   Widget build(BuildContext context) {
-    return _CountingRepaintBoundary(key: _boundaryKey, child: widget.child);
+    return _CountingRepaintBoundary(
+      key: _boundaryKey,
+      onPaint: () => _session?.wake(), // 重繪時喚醒閒置中的擷取迴圈
+      child: widget.child,
+    );
   }
 }
 
@@ -249,18 +255,27 @@ class _AqutterNativeState extends State<AqutterNative> {
 ///
 /// 子樹沒變時，Flutter 會直接重用快取的圖層而不呼叫 [paint]，所以 [paintCount] 沒變就代表畫面沒變。
 class _CountingRepaintBoundary extends SingleChildRenderObjectWidget {
-  const _CountingRepaintBoundary({super.key, super.child});
+  const _CountingRepaintBoundary({super.key, super.child, this.onPaint});
+
+  final VoidCallback? onPaint;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => _RenderCountingRepaintBoundary();
+  RenderObject createRenderObject(BuildContext context) => _RenderCountingRepaintBoundary()..onPaint = onPaint;
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderCountingRepaintBoundary renderObject) {
+    renderObject.onPaint = onPaint;
+  }
 }
 
 class _RenderCountingRepaintBoundary extends RenderRepaintBoundary {
   int paintCount = 0;
+  VoidCallback? onPaint;
 
   @override
   void paint(PaintingContext context, Offset offset) {
     paintCount += 1;
+    onPaint?.call();
     super.paint(context, offset);
   }
 }
