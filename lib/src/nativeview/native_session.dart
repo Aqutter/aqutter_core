@@ -2,20 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import 'mirror_frame.dart';
+import 'native_frame.dart';
 
 /// 擷取一幀；回 null 表示這一輪沒有可送的畫面（尚未繪製、擷取失敗等）。
-typedef AqutterMirrorCapture = Future<AqutterMirrorFrame?> Function();
+typedef AqutterNativeCapture = Future<AqutterNativeFrame?> Function();
 
 /// 網頁端訊息的處理者。
-typedef AqutterMirrorMessageHandler = void Function(AqutterMirrorMessage message);
+typedef AqutterNativeMessageHandler = void Function(AqutterNativeMessage message);
 
 /// 一個鏡像工作階段：一個被鏡像的對象 + 其擷取迴圈 + 與網頁端的訊息通道。
 ///
-/// 由 `AqutterMirrorHost` 依 [id] 對應網頁端的連線。擷取迴圈只在有網頁連線時才跑——
+/// 由 `AqutterNativeHost` 依 [id] 對應網頁端的連線。擷取迴圈只在有網頁連線時才跑——
 /// 沒人看的畫面不該耗 CPU。
-class AqutterMirrorSession {
-  AqutterMirrorSession({
+class AqutterNativeSession {
+  AqutterNativeSession({
     required this.id,
     required this.capture,
     this.onMessage,
@@ -25,8 +25,8 @@ class AqutterMirrorSession {
   /// 與網頁端 `<aqutter-native session="…">` 一致的識別字。
   final String id;
 
-  final AqutterMirrorCapture capture;
-  final AqutterMirrorMessageHandler? onMessage;
+  final AqutterNativeCapture capture;
+  final AqutterNativeMessageHandler? onMessage;
 
   /// 目標幀率（擷取較慢時實際會更低，不會堆積）。
   final int fps;
@@ -74,7 +74,7 @@ class AqutterMirrorSession {
       }
       final ms = stopwatch.elapsedMicroseconds / 1000;
       captureMs = captureMs == 0 ? ms : captureMs * 0.8 + ms * 0.2;
-      _send?.call(encodeAqutterMirrorFrame(frame, sentAtMs: DateTime.now().millisecondsSinceEpoch));
+      _send?.call(encodeAqutterNativeFrame(frame, sentAtMs: DateTime.now().millisecondsSinceEpoch));
     }
     catch (error) {
       debugPrint('[aqutter-mirror:$id] capture failed: $error');
@@ -85,7 +85,7 @@ class AqutterMirrorSession {
   }
 
   /// 收到網頁端訊息（host 呼叫）。
-  void handleMessage(AqutterMirrorMessage message) => onMessage?.call(message);
+  void handleMessage(AqutterNativeMessage message) => onMessage?.call(message);
 
   void dispose() {
     _timer?.cancel();

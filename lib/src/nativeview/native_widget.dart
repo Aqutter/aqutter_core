@@ -3,9 +3,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-import 'mirror_frame.dart';
-import 'mirror_host_io.dart' if (dart.library.js_interop) 'mirror_host_stub.dart';
-import 'mirror_session.dart';
+import 'native_frame.dart';
+import 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart';
+import 'native_session.dart';
 import 'native_capture.dart';
 
 /// 把 [child] 鏡像到網頁的 `<aqutter-native session="[sessionId]">`。
@@ -16,15 +16,15 @@ import 'native_capture.dart';
 ///
 /// 擷取方式：預設用 [RepaintBoundary] 擷取（純 Flutter 內容、Android 上的 PlatformView）；
 /// iOS 的 PlatformView 需設 [nativeCapture] 走 `drawHierarchy`。
-class AqutterMirror extends StatefulWidget {
-  const AqutterMirror({
+class AqutterNative extends StatefulWidget {
+  const AqutterNative({
     super.key,
     required this.sessionId,
     required this.child,
     this.onMessage,
     this.fps = 30,
     this.pixelRatio = 1.5,
-    this.format = AqutterMirrorFormat.rgba,
+    this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeViewTypeContains,
   });
@@ -32,12 +32,12 @@ class AqutterMirror extends StatefulWidget {
   /// 與網頁端 `session` 屬性一致；同一時間不得有兩個相同 id。
   final String sessionId;
   final Widget child;
-  final AqutterMirrorMessageHandler? onMessage;
+  final AqutterNativeMessageHandler? onMessage;
   final int fps;
 
   /// 擷取解析度倍率（logical → pixel）；調低換 fps、調高換畫質。
   final double pixelRatio;
-  final AqutterMirrorFormat format;
+  final AqutterNativeFormat format;
 
   /// 在 iOS 以原生 `drawHierarchy` 擷取（PlatformView 用）；其他平台忽略。
   final bool nativeCapture;
@@ -46,12 +46,12 @@ class AqutterMirror extends StatefulWidget {
   final String? nativeViewTypeContains;
 
   @override
-  State<AqutterMirror> createState() => _AqutterMirrorState();
+  State<AqutterNative> createState() => _AqutterNativeState();
 }
 
-class _AqutterMirrorState extends State<AqutterMirror> {
+class _AqutterNativeState extends State<AqutterNative> {
   final GlobalKey _boundaryKey = GlobalKey();
-  AqutterMirrorSession? _session;
+  AqutterNativeSession? _session;
 
   @override
   void initState() {
@@ -60,7 +60,7 @@ class _AqutterMirrorState extends State<AqutterMirror> {
   }
 
   @override
-  void didUpdateWidget(AqutterMirror oldWidget) {
+  void didUpdateWidget(AqutterNative oldWidget) {
     super.didUpdateWidget(oldWidget);
     final changed = oldWidget.sessionId != widget.sessionId
         || oldWidget.fps != widget.fps
@@ -74,7 +74,7 @@ class _AqutterMirrorState extends State<AqutterMirror> {
   }
 
   void _register() {
-    final session = AqutterMirrorSession(
+    final session = AqutterNativeSession(
       id: widget.sessionId,
       fps: widget.fps,
       capture: _capture,
@@ -82,18 +82,18 @@ class _AqutterMirrorState extends State<AqutterMirror> {
       onMessage: (message) => widget.onMessage?.call(message),
     );
     _session = session;
-    AqutterMirrorHost.instance.register(session);
+    AqutterNativeHost.instance.register(session);
   }
 
   void _unregister() {
     final session = _session;
     if (session != null) {
-      AqutterMirrorHost.instance.unregister(session);
+      AqutterNativeHost.instance.unregister(session);
       _session = null;
     }
   }
 
-  Future<AqutterMirrorFrame?> _capture() async {
+  Future<AqutterNativeFrame?> _capture() async {
     final box = _boundaryKey.currentContext?.findRenderObject();
     if (box is! RenderRepaintBoundary || !box.hasSize) {
       return null;
@@ -110,14 +110,14 @@ class _AqutterMirrorState extends State<AqutterMirror> {
     }
     final image = await box.toImage(pixelRatio: widget.pixelRatio);
     try {
-      final byteFormat = widget.format == AqutterMirrorFormat.png
+      final byteFormat = widget.format == AqutterNativeFormat.png
           ? ui.ImageByteFormat.png
           : ui.ImageByteFormat.rawStraightRgba;
       final data = await image.toByteData(format: byteFormat);
       if (data == null) {
         return null;
       }
-      return AqutterMirrorFrame(
+      return AqutterNativeFrame(
         width: image.width,
         height: image.height,
         format: widget.format,

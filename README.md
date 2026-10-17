@@ -44,7 +44,7 @@ assets/packages/aqutter_core/assets/web/web_support.js
 
 ## Native view 鏡像
 
-把 Flutter 內容（Widget 或 PlatformView，如地圖）即時鏡像到網頁 canvas，並接收網頁手勢回控，讓網頁能在原生內容之上疊 HTML。Dart 端 `AqutterMirror`，網頁端是 `@aqutter/aqutter` 的 `<aqutter-native>`；協定與限制見 [doc/nativeview.md](doc/nativeview.md)。
+把 Flutter 內容（Widget 或 PlatformView，如地圖）即時鏡像到網頁 canvas，並接收網頁手勢回控，讓網頁能在原生內容之上疊 HTML。Dart 端 `AqutterNative`，網頁端是 `@aqutter/aqutter` 的 `<aqutter-native>`；協定與限制見 [doc/nativeview.md](doc/nativeview.md)。
 
 ## 目錄結構
 

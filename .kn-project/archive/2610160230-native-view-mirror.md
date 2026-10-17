@@ -5,7 +5,7 @@
 - Milestone: N/A / Base Branch: main
 
 ## Summary
-`aqutter_core` 0.2.0：新增 native view 鏡像——把 Flutter 內容（Widget 或 PlatformView）擷取後經 localhost WebSocket 送給網頁 canvas，並接收網頁手勢回控。包含 Dart 端（`AqutterMirror`、`AqutterMirrorHost`、`AqutterMirrorSession`）與 iOS 的 `drawHierarchy` 原生擷取；網頁端在 `aqutter` monorepo 的 client 套件（`<aqutter-native>`）。
+`aqutter_core` 0.2.0：新增 native view 鏡像——把 Flutter 內容（Widget 或 PlatformView）擷取後經 localhost WebSocket 送給網頁 canvas，並接收網頁手勢回控。包含 Dart 端（`AqutterNative`、`AqutterNativeHost`、`AqutterNativeSession`）與 iOS 的 `drawHierarchy` 原生擷取；網頁端在 `aqutter` monorepo 的 client 套件（`<aqutter-native>`）。
 直接推送 `main`，未使用 issue、PR、milestone 或版本分支。
 
 ## Cross-Repo Scope

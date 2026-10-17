@@ -3,7 +3,7 @@
 把 Flutter 內容（Widget 或 PlatformView，如地圖）即時鏡像到網頁的 canvas，並讓網頁的手勢與指令回控原生內容。這讓網頁能在原生內容**之上**疊 HTML、做 z-index 與圖層合成——WebView 與原生 view 本來無法交錯疊放。
 
 ```
-Flutter：[被鏡像的內容]──擷取──▶ AqutterMirrorSession ──▶ AqutterMirrorHost（localhost WebSocket）
+Flutter：[被鏡像的內容]──擷取──▶ AqutterNativeSession ──▶ AqutterNativeHost（localhost WebSocket）
                                                               │ 二進位幀 ▲ JSON 訊息
 網頁：   <aqutter-native session="…"> ◀── NativeMirror（canvas 繪製 + 手勢辨識）
 ```
@@ -11,7 +11,7 @@ Flutter：[被鏡像的內容]──擷取──▶ AqutterMirrorSession ──�
 ## Dart 端
 
 ```dart
-AqutterMirror(
+AqutterNative(
   sessionId: 'map',
   fps: 30,
   onMessage: (message) {
@@ -23,9 +23,9 @@ AqutterMirror(
 
 | 項目 | 說明 |
 |---|---|
-| `AqutterMirror` | 以 `RepaintBoundary` 包住 `child`，註冊工作階段，依 `fps` 擷取並送出；沒有網頁連線時不擷取 |
-| `AqutterMirrorHost` | 單例；`ensureStarted()` 以暫時埠啟動 `127.0.0.1` 的 WebSocket 伺服器，回傳 `{port, token}` |
-| `AqutterMirrorSession` | 自訂擷取來源用（不經 `AqutterMirror`）：給 `capture` 回呼即可 |
+| `AqutterNative` | 以 `RepaintBoundary` 包住 `child`，註冊工作階段，依 `fps` 擷取並送出；沒有網頁連線時不擷取 |
+| `AqutterNativeHost` | 單例；`ensureStarted()` 以暫時埠啟動 `127.0.0.1` 的 WebSocket 伺服器，回傳 `{port, token}` |
+| `AqutterNativeSession` | 自訂擷取來源用（不經 `AqutterNative`）：給 `capture` 回呼即可 |
 | `AqutterNativeCapture` | iOS 的 `drawHierarchy` 擷取（PlatformView 用） |
 
 擷取方式：預設 `RenderRepaintBoundary.toImage`（純 Flutter 內容、Android 的 PlatformView）；iOS 的 PlatformView 無法由 Flutter rasterize，設 `nativeCapture: true`（可再給 `nativeViewTypeContains: 'GMSMapView'` 直接擷取該 view，不含疊在其上的網頁）。Web 平台不支援（沒有 `dart:io`）。

@@ -6,12 +6,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
-import 'mirror_frame.dart';
-import 'mirror_session.dart';
+import 'native_frame.dart';
+import 'native_session.dart';
 
 /// 網頁端連線所需的資訊；由 App 以 bridge 交給網頁。
-class AqutterMirrorEndpoint {
-  const AqutterMirrorEndpoint({required this.port, required this.token});
+class AqutterNativeEndpoint {
+  const AqutterNativeEndpoint({required this.port, required this.token});
 
   final int port;
 
@@ -21,24 +21,24 @@ class AqutterMirrorEndpoint {
   Map<String, Object> toJson() => {'port': port, 'token': token};
 }
 
-/// 內嵌的 localhost WebSocket 伺服器：把各 [AqutterMirrorSession] 的幀送給網頁，並把網頁訊息送回。
+/// 內嵌的 localhost WebSocket 伺服器：把各 [AqutterNativeSession] 的幀送給網頁，並把網頁訊息送回。
 ///
 /// 連線路徑：`ws://127.0.0.1:<port>/mirror/<sessionId>?token=<token>`。
 /// 單例；第一次 [ensureStarted] 時以暫時埠啟動。
-class AqutterMirrorHost {
-  AqutterMirrorHost._();
+class AqutterNativeHost {
+  AqutterNativeHost._();
 
-  static final AqutterMirrorHost instance = AqutterMirrorHost._();
+  static final AqutterNativeHost instance = AqutterNativeHost._();
 
   HttpServer? _server;
-  AqutterMirrorEndpoint? _endpoint;
-  Future<AqutterMirrorEndpoint>? _starting;
+  AqutterNativeEndpoint? _endpoint;
+  Future<AqutterNativeEndpoint>? _starting;
 
-  final Map<String, AqutterMirrorSession> _sessions = {};
+  final Map<String, AqutterNativeSession> _sessions = {};
   final Map<String, Set<WebSocket>> _clients = {};
 
   /// 啟動伺服器（冪等）並回傳連線資訊。
-  Future<AqutterMirrorEndpoint> ensureStarted() {
+  Future<AqutterNativeEndpoint> ensureStarted() {
     final existing = _endpoint;
     if (existing != null) {
       return Future.value(existing);
@@ -46,28 +46,28 @@ class AqutterMirrorHost {
     return _starting ??= _start();
   }
 
-  Future<AqutterMirrorEndpoint> _start() async {
+  Future<AqutterNativeEndpoint> _start() async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final random = Random.secure();
     final token = base64UrlEncode(List<int>.generate(24, (_) => random.nextInt(256)));
     _server = server;
-    _endpoint = AqutterMirrorEndpoint(port: server.port, token: token);
+    _endpoint = AqutterNativeEndpoint(port: server.port, token: token);
     server.listen(_onRequest);
     debugPrint('[aqutter-mirror] ws server on ws://127.0.0.1:${server.port}');
     return _endpoint!;
   }
 
   /// 註冊工作階段；同 id 已存在會拋 [StateError]（兩個被鏡像的對象不能共用一個畫面）。
-  void register(AqutterMirrorSession session) {
+  void register(AqutterNativeSession session) {
     if (_sessions.containsKey(session.id)) {
-      throw StateError('Mirror session "${session.id}" is already registered');
+      throw StateError('Native session "${session.id}" is already registered');
     }
     _sessions[session.id] = session;
     session.attachTransport((frame) => _broadcast(session.id, frame));
     session.clientCountChanged(_clients[session.id]?.length ?? 0);
   }
 
-  void unregister(AqutterMirrorSession session) {
+  void unregister(AqutterNativeSession session) {
     if (_sessions[session.id] != session) {
       return;
     }
@@ -135,7 +135,7 @@ class AqutterMirrorHost {
       if (type is! String) {
         return;
       }
-      _sessions[id]?.handleMessage(AqutterMirrorMessage(type, decoded));
+      _sessions[id]?.handleMessage(AqutterNativeMessage(type, decoded));
     }
     catch (error) {
       debugPrint('[aqutter-mirror:$id] bad message: $error');
@@ -144,7 +144,7 @@ class AqutterMirrorHost {
 
   /// 關閉伺服器並清掉所有工作階段（測試或 App 結束時用）。
   Future<void> stop() async {
-    for (final session in List<AqutterMirrorSession>.of(_sessions.values)) {
+    for (final session in List<AqutterNativeSession>.of(_sessions.values)) {
       unregister(session);
     }
     await _server?.close(force: true);

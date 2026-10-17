@@ -4,7 +4,7 @@ import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'mirror_frame.dart';
+import 'native_frame.dart';
 
 /// 平台原生擷取。
 ///
@@ -24,7 +24,7 @@ class AqutterNativeCapture {
   /// [viewTypeContains] 給了且在 view 階層找得到類名含此字串的 view 時，直接擷取該 view
   /// （不含疊在其上的網頁覆蓋層，也免裁切）；否則擷取整個 window 再裁切到 [rect]。
   /// 回 null 代表這一輪擷取不到。
-  static Future<AqutterMirrorFrame?> capture(Rect rect, {String? viewTypeContains}) async {
+  static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains}) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('capture', {
       'x': rect.left,
       'y': rect.top,
@@ -35,10 +35,10 @@ class AqutterNativeCapture {
     if (result == null) {
       return null;
     }
-    return AqutterMirrorFrame(
+    return AqutterNativeFrame(
       width: result['width'] as int,
       height: result['height'] as int,
-      format: AqutterMirrorFormat.rgba,
+      format: AqutterNativeFormat.rgba,
       payload: result['bytes'] as Uint8List,
     );
   }

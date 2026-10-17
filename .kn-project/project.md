@@ -43,7 +43,7 @@ gh repo set-default Aqutter/aqutter_core
 | `lib/aqutter_core.dart` | 唯一對外入口 |
 | `lib/src/platform_interface/` | 平台無關的介面與設定物件（`AqutterWebViewSettings` 等），含 build_runner 產生的 `*.g.dart` |
 | `lib/src/*`（`platform_interface`、`platforms` 以外） | app-facing 類別（`AqutterWebView`、`AqutterBrowser`、`AqutterChromeSafariBrowser` 等） |
-| `lib/src/nativeview/` | native view 鏡像（`AqutterMirror`、localhost WebSocket host、iOS 原生擷取的 Dart 端）；iOS 原生端在 `ios/…/NativeView/` |
+| `lib/src/nativeview/` | native view 鏡像（`AqutterNative`、localhost WebSocket host、iOS 原生擷取的 Dart 端）；iOS 原生端在 `ios/…/NativeView/` |
 | `lib/src/platforms/<平台>/` | 各平台的 Dart 實作（android、ios、macos、windows、linux、web） |
 | `lib/src/platforms/platforms.dart` | 以 `dart.library.js_interop` 條件匯出：原生建置只公開 5 個平台的註冊類別，Web 改由 pubspec 的 `fileName` 註冊 |
 | `android/` `ios/` `macos/` `windows/` `linux/` | 各平台原生程式碼（Android 為 Kotlin，位於 `android/src/main/kotlin`，命名空間 `com.github.aqutter.core`） |
