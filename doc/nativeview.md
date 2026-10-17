@@ -61,7 +61,8 @@ AqutterNative(
 
 - 網頁的 pointerId 會對應成不與真實觸控衝突的內部 id；滑鼠與觸控筆以觸控注入（主要按鍵）。
 - 與語意手勢（`tap` / `pan` / `pinch`）互斥或並用由網頁的 `input` 屬性決定，見 aqutter 文件。
-- Flutter 的 `onTap` 在同時註冊 `onDoubleTap` 時會等約 300 ms 才觸發，這是標準行為，語意手勢（網頁判斷）沒有這個延遲。
+- Flutter 的 `onTap` 在同時註冊 `onDoubleTap` 時會等約 300 ms 才觸發（要確認不是雙擊），這是 Flutter 的標準行為，實測單擊到畫面更新約 395 ms；語意手勢（網頁判斷）沒有這個延遲。
+- 要「單擊立即反應、雙擊仍由 Flutter 判斷」：單擊改用 `Listener` 在放開時立刻處理（`Listener` 不進手勢競技場，不會被壓住；自己檢查位移小於 `kTouchSlop`、按住時間小於 `kLongPressTimeout`），雙擊仍用 `GestureDetector.onDoubleTap`（第二下放開時觸發，沒有額外等待）。範例 plugin 就是這樣寫，實測單擊到畫面更新降到約 46 到 69 ms。
 
 另有兩種協定內部訊息，由 host 處理、**不會**轉給 `onMessage`：
 
