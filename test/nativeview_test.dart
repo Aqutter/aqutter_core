@@ -125,6 +125,37 @@ void main() {
       expect(frames, aqutterNativeMaxInFlight * 2);
     });
 
+    test('pauses capture while every client reports it is hidden, and resumes with a fresh frame', () async {
+      var captures = 0;
+      final session = AqutterNativeSession(
+        id: 'visible',
+        fps: 120,
+        capture: () async {
+          captures += 1;
+          return null;
+        },
+      );
+      host.register(session);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'visible');
+      addTearDown(() => socket.close());
+      socket.listen((_) {});
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(captures, greaterThan(0));
+
+      socket.add(jsonEncode({'type': 'visibility', 'visible': false}));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final paused = captures;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(captures, paused);
+
+      session.takeDirty(); // 清掉先前的標記，確認恢復時會重新標記
+      socket.add(jsonEncode({'type': 'visibility', 'visible': true}));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(captures, greaterThan(paused));
+    });
+
     test('numbers frames in increasing order', () async {
       final seqs = <int>[];
       host.register(AqutterNativeSession(

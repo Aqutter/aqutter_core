@@ -38,6 +38,9 @@ class AqutterNativeSession {
   bool Function()? _canSend;
 
   int _clients = 0;
+
+  /// 網頁端回報「看得到」的連線數；沒有任何看得到的連線時暫停擷取（元素被捲出畫面、分頁隱藏等）。
+  int _visibleClients = 0;
   int _seq = 0;
   bool _dirty = true;
 
@@ -74,16 +77,35 @@ class AqutterNativeSession {
     markDirty();
   }
 
-  /// 網頁連線數改變。
-  void clientCountChanged(int count) {
+  /// 網頁連線數改變。新連線預設為「看得到」，直到它回報 `visibility`。
+  void clientCountChanged(int count, {int? visible}) {
     if (count > _clients) {
       markDirty();
     }
     _clients = count;
-    if (count > 0 && _timer == null) {
+    final nextVisible = visible ?? count;
+    if (nextVisible > _visibleClients) {
+      markDirty(); // 重新看得到時第一幀要立刻有
+    }
+    _visibleClients = nextVisible;
+    _syncTimer();
+  }
+
+  /// 看得到的連線數改變（網頁回報 `visibility`）。
+  void visibleClientsChanged(int visible) {
+    if (visible > _visibleClients) {
+      markDirty();
+    }
+    _visibleClients = visible;
+    _syncTimer();
+  }
+
+  /// 有看得到的連線才跑擷取迴圈：沒人看到的畫面不該耗 CPU。
+  void _syncTimer() {
+    if (_visibleClients > 0 && _timer == null) {
       _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ fps), (_) => _tick());
     }
-    else if (count == 0) {
+    else if (_visibleClients == 0) {
       _timer?.cancel();
       _timer = null;
     }

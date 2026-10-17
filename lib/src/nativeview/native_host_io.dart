@@ -31,7 +31,8 @@ class AqutterNativeEndpoint {
 ///
 /// 流量控制：每個連線最多同時有 [aqutterNativeMaxInFlight] 幀未被確認；網頁每處理完（畫出或丟棄）
 /// 一幀就回 `{"type":"ack"}`。超過上限時不再送新幀給該連線，所有連線都滿時工作階段也不再擷取。
-/// 網頁回報顯示尺寸的 `{"type":"resize"}` 由本類別處理，不會轉給 `onMessage`。
+/// 網頁回報顯示尺寸的 `{"type":"resize"}`、回報可見性的 `{"type":"visibility","visible":bool}` 由本類別處理，
+/// 不會轉給 `onMessage`；所有連線都回報看不到時，工作階段暫停擷取。
 class AqutterNativeHost {
   AqutterNativeHost._();
 
@@ -46,6 +47,9 @@ class AqutterNativeHost {
 
   /// 每個連線目前未被確認的幀數。
   final Map<WebSocket, int> _inFlight = {};
+
+  /// 網頁回報看不到的連線（預設看得到）。
+  final Set<WebSocket> _hidden = {};
 
   /// 啟動伺服器（冪等）並回傳連線資訊。
   Future<AqutterNativeEndpoint> ensureStarted() {
@@ -132,7 +136,7 @@ class AqutterNativeHost {
     final sockets = _clients.putIfAbsent(id, () => <WebSocket>{});
     sockets.add(socket);
     _inFlight[socket] = 0;
-    _sessions[id]?.clientCountChanged(sockets.length);
+    _sessions[id]?.clientCountChanged(sockets.length, visible: _visibleCount(id));
     socket.listen(
       (data) => _onData(id, socket, data),
       onDone: () => _onClosed(id, socket),
@@ -147,7 +151,8 @@ class AqutterNativeHost {
     }
     sockets.remove(socket);
     _inFlight.remove(socket);
-    _sessions[id]?.clientCountChanged(sockets.length);
+    _hidden.remove(socket);
+    _sessions[id]?.clientCountChanged(sockets.length, visible: _visibleCount(id));
   }
 
   void _onData(String id, WebSocket socket, dynamic data) {
@@ -171,6 +176,14 @@ class AqutterNativeHost {
           }
         case 'resize':
           _applyResize(id, decoded);
+        case 'visibility':
+          if (decoded['visible'] == false) {
+            _hidden.add(socket);
+          }
+          else {
+            _hidden.remove(socket);
+          }
+          _sessions[id]?.visibleClientsChanged(_visibleCount(id));
         default:
           _sessions[id]?.handleMessage(AqutterNativeMessage(type, decoded));
       }
@@ -179,6 +192,8 @@ class AqutterNativeHost {
       debugPrint('[aqutter-native:$id] bad message: $error');
     }
   }
+
+  int _visibleCount(String id) => (_clients[id] ?? const <WebSocket>{}).where((socket) => !_hidden.contains(socket)).length;
 
   void _applyResize(String id, Map<String, dynamic> message) {
     final width = message['width'];
