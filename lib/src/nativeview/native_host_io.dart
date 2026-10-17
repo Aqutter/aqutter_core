@@ -71,17 +71,19 @@ class AqutterNativeHost {
     return _endpoint!;
   }
 
-  /// 註冊工作階段；同 id 已存在會拋 [StateError]（兩個被鏡像的對象不能共用一個畫面）。
+  /// 註冊工作階段。同 id 已存在時，新的**取代**舊的並承接既有的網頁連線（連線不中斷）。
+  ///
+  /// 不能擲錯：Flutter 重建子樹時（例如 widget 樹上層的型別改變）會先執行新 `State` 的 `initState`，
+  /// 之後才 `dispose` 舊的，同一個 id 因此會短暫出現兩次。舊工作階段之後呼叫 [unregister] 時，
+  /// 因為已不是登記中的那一個，不會有任何作用。
   void register(AqutterNativeSession session) {
-    if (_sessions.containsKey(session.id)) {
-      throw StateError('Native session "${session.id}" is already registered');
-    }
+    _sessions[session.id]?.dispose();
     _sessions[session.id] = session;
     session.attachTransport(
       send: (frame) => _broadcast(session.id, frame),
       canSend: () => _canSend(session.id),
     );
-    session.clientCountChanged(_clients[session.id]?.length ?? 0);
+    session.clientCountChanged(_clients[session.id]?.length ?? 0, visible: _visibleCount(session.id));
   }
 
   void unregister(AqutterNativeSession session) {

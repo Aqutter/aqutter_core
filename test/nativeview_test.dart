@@ -92,9 +92,32 @@ void main() {
       await expectLater(connect(endpoint, 'missing'), throwsA(isA<WebSocketException>()));
     });
 
-    test('refuses a duplicate session id', () async {
-      host.register(AqutterNativeSession(id: 'dup', capture: () async => null));
-      expect(() => host.register(AqutterNativeSession(id: 'dup', capture: () async => null)), throwsStateError);
+    test('a session registered with the same id replaces the old one and keeps its clients', () async {
+      var oldCaptures = 0;
+      var newCaptures = 0;
+      final oldSession = AqutterNativeSession(id: 'swap', fps: 120, capture: () async {
+        oldCaptures += 1;
+        return null;
+      });
+      host.register(oldSession);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'swap');
+      addTearDown(() => socket.close());
+      socket.listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(oldCaptures, greaterThan(0));
+
+      host.register(AqutterNativeSession(id: 'swap', fps: 120, capture: () async {
+        newCaptures += 1;
+        return null;
+      }));
+      final oldBefore = oldCaptures;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(newCaptures, greaterThan(0)); // 連線沒斷，新的立刻接手
+      expect(oldCaptures, oldBefore);
+
+      host.unregister(oldSession); // 舊的稍後才被 dispose：不能把新的拆掉
+      expect(host.hasSession('swap'), isTrue);
     });
 
     test('stops sending when the client does not acknowledge, and resumes after acks', () async {

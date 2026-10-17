@@ -33,7 +33,7 @@ class AqutterNative extends StatefulWidget {
     this.nativeViewTypeContains,
   });
 
-  /// 與網頁端 `session` 屬性一致；同一時間不得有兩個相同 id。
+  /// 與網頁端 `session` 屬性一致；同時掛了兩個相同 id 時，後掛上的取代先掛上的。
   final String sessionId;
   final Widget child;
   final AqutterNativeMessageHandler? onMessage;
