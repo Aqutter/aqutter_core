@@ -93,4 +93,13 @@ void main() {
     final result = await _measure(tester, 'sized', const Duration(milliseconds: 600), resize: {'width': 100, 'height': 50, 'dpr': 2});
     expect(result.width, 200);
   });
+
+  testWidgets('matchViewportAspect lays the child out with the web element aspect', (tester) async {
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'aspect', fps: 60, matchViewportAspect: true, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    // 元件 200x100；網頁元素 1:1（100x100、dpr 1）→ 子畫面縮成 100x100，剛好 1:1 擷取成 100 像素寬
+    final tick = ValueNotifier<int>(0); // 只用來讓測試每 16ms pump 一次，好讓回報尺寸後的重新排版發生
+    addTearDown(tick.dispose);
+    final result = await _measure(tester, 'aspect', const Duration(milliseconds: 600), resize: {'width': 100, 'height': 100, 'dpr': 1}, animate: tick);
+    expect(result.width, 100);
+  });
 }

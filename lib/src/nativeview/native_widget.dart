@@ -35,6 +35,7 @@ class AqutterNative extends StatefulWidget {
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeViewTypeContains,
+    this.matchViewportAspect = false,
   });
 
   /// 與網頁端 `session` 屬性一致；同時掛了兩個相同 id 時，後掛上的取代先掛上的。
@@ -74,6 +75,13 @@ class AqutterNative extends StatefulWidget {
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
 
+  /// 讓 [child] 的長寬比跟網頁元素一致（在可用空間內置中、等比放大到最大）。
+  ///
+  /// 預設關閉：[child] 填滿可用空間，網頁元素比例不同時會被縮放／裁切（`fit`）。
+  /// 開啟後擷取的每個像素都對應網頁上實際會看到的內容，幀更小、不會有被裁掉的部分；
+  /// 網頁回報尺寸前維持填滿。
+  final bool matchViewportAspect;
+
   @override
   State<AqutterNative> createState() => _AqutterNativeState();
 }
@@ -104,7 +112,8 @@ class _AqutterNativeState extends State<AqutterNative> {
         || oldWidget.pixelRatio != widget.pixelRatio
         || oldWidget.nativeCapture != widget.nativeCapture
         || oldWidget.adaptive != widget.adaptive
-        || oldWidget.minScale != widget.minScale;
+        || oldWidget.minScale != widget.minScale
+        || oldWidget.matchViewportAspect != widget.matchViewportAspect;
     if (changed) {
       _unregister();
       _register();
@@ -248,10 +257,26 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   @override
   Widget build(BuildContext context) {
-    return _CountingRepaintBoundary(
+    final boundary = _CountingRepaintBoundary(
       key: _boundaryKey,
       onPaint: () => _session?.wake(), // 重繪時喚醒閒置中的擷取迴圈
       child: widget.child,
+    );
+    final session = _session;
+    if (!widget.matchViewportAspect || session == null) {
+      return boundary;
+    }
+    return ValueListenableBuilder<AqutterNativeViewport?>(
+      valueListenable: session.viewportListenable,
+      child: boundary,
+      builder: (context, viewport, child) {
+        if (viewport == null || viewport.width <= 0 || viewport.height <= 0) {
+          return child!;
+        }
+        return Center(
+          child: AspectRatio(aspectRatio: viewport.width / viewport.height, child: child),
+        );
+      },
     );
   }
 }

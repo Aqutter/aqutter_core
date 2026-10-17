@@ -60,6 +60,9 @@ class AqutterNativeSession {
 
   /// 網頁端最近回報的顯示尺寸；尚未回報為 null。
   AqutterNativeViewport? viewport;
+
+  /// [viewport] 的變動通知（供 `matchViewportAspect` 重新排版）。
+  final ValueNotifier<AqutterNativeViewport?> viewportListenable = ValueNotifier<AqutterNativeViewport?>(null);
   bool _loopRunning = false;
   bool _disposed = false;
 
@@ -114,6 +117,7 @@ class AqutterNativeSession {
       return;
     }
     viewport = next;
+    viewportListenable.value = next;
     markDirty();
   }
 
@@ -239,6 +243,7 @@ class AqutterNativeSession {
 
   void dispose() {
     _disposed = true;
+    viewportListenable.dispose();
     _send = null;
     _canSend = null;
   }

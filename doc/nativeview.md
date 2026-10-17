@@ -73,6 +73,7 @@ AqutterNative(
 | 關閉 WebSocket 壓縮 | dart:io 的 WebSocket 預設會與瀏覽器協商 permessage-deflate，每幀數 MB 的原始像素都被 zlib 壓一次；host 以 `CompressionOptions.compressionOff` 關掉。macOS 實測 `send` 階段每幀 7.8ms → 1.5ms，幀率 42 → 55 fps（小元素）、26 → 48.5 fps（大元素）。 |
 | 重繪事件驅動的擷取迴圈 | 內容重繪時（`AqutterNative` 內的 `RepaintBoundary`）喚醒擷取迴圈，擷取以目標幀率為上限；閒置時只留低頻逾時（補定格幀等計時事件用），幾乎不耗 CPU。不用固定週期的輪詢：輪詢頻率若接近內容的重繪頻率（都是 60Hz），相位會慢慢漂移，有時兩輪撞同一幀、有時整個週期沒被碰到，實測漏掉一成到四成的幀。沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）以 `eventDriven: false` 兩倍目標幀率輪詢。 |
 | 自適應解析度 | `adaptive: AqutterNativeAdaptive.resolution`（預設關閉）：連續幾幀擷取超過每幀預算才降低解析度倍率（有下限 `minScale`，預設 0.5）、連續很多幀都很快才升回；內容停止變動 `settleDelay`（250ms）後補一幀完整解析度的定格幀，靜止畫面維持清晰。 |
+| 長寬比對齊 | `matchViewportAspect: true`（預設關閉）：子畫面在可用空間內置中，長寬比改成與網頁元素一致。全螢幕的 widget 鏡像到小方框時，不開會多擷取被 `fit` 裁掉的部分、幀也較大；開了之後每個像素都對應網頁上看得到的內容。網頁回報尺寸前維持填滿。 |
 | 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
 | 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；每一幀在收到時就已回 `ack`（不等畫完，否則確認的往返會多出一個繪製週期，卡住原生端的送幀）。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
