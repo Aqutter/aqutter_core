@@ -1,6 +1,6 @@
 name: aqutter_core
 description: Aqutter 框架的 Flutter WebView 核心套件：inline WebView、headless WebView 與 in-app browser（源自 flutter_inappwebview）。
-version: 0.2.0
+version: 0.0.0
 publish_to: none
 homepage: https://github.com/Aqutter/aqutter_core
 repository: https://github.com/Aqutter/aqutter_core

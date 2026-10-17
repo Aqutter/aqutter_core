@@ -25,7 +25,7 @@ dependencies:
   aqutter_core:
     git:
       url: https://github.com/Aqutter/aqutter_core.git
-      ref: 0.2.0 # 鎖定 tag
+      ref: 0.0.0 # 鎖定 tag
 ```
 
 ```dart

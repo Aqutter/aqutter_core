@@ -110,9 +110,9 @@ Android / iOS / macOS 三平台的宣告皆位於各自的 `plugin_scripts_js` /
 
 ## 版本紀錄
 
-只記併回主幹，發佈狀態以 GitHub Release 為準。
+開發階段版本固定為 `0.0.0`，以 git tag `0.0.0` 作為使用端的鎖定點（有變更時移到最新的 `main`）；正式版本號待釋出時再定。
 
-- 0.1.0 — 初始版本（以單一 Flutter plugin 套件提供 WebView 核心，涵蓋六個平台）
+- 0.0.0 — 單一 Flutter plugin 套件提供 WebView 核心（六個平台）、native view 鏡像
 
 ---
 [🏠 Wiki](./wiki/index.md)
