@@ -36,7 +36,7 @@ AqutterNative(
 
 ## 幀格式（Dart → 網頁，二進位）
 
-little-endian：`[w u32 | h u32 | fmt u32 | sentAt f64 (epoch ms)][payload]`，標頭 20 bytes。
+little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][payload]`，標頭 24 bytes。`seq` 是每個工作階段從 1 遞增的序號。
 
 | fmt | payload |
 |---|---|
@@ -53,6 +53,23 @@ little-endian：`[w u32 | h u32 | fmt u32 | sentAt f64 (epoch ms)][payload]`，�
 | `pan` | `phase`（`start` / `update` / `end`）、`x`, `y`、`dx`, `dy`（自上一個事件的位移） |
 | `pinch` | `phase`、`scale`（自 pinch 開始的累計倍率）、`x`, `y`（兩指中心） |
 | `command` | `name`、`args`（自訂；網頁以 `send` 送出） |
+
+另有兩種協定內部訊息，由 host 處理、**不會**轉給 `onMessage`：
+
+| type | 欄位 | 用途 |
+|---|---|---|
+| `ack` | `seq` | 網頁每處理完一幀（畫出、被較新的幀取代、亂序丟棄、解碼失敗都算）就回一個 |
+| `resize` | `width`、`height`（CSS 像素）、`dpr` | 網頁回報顯示尺寸；連線時與尺寸改變時送 |
+
+## 效能設計
+
+| 機制 | 說明 |
+|---|---|
+| 沒變就不擷取 | `AqutterNative` 內的 `RepaintBoundary` 會計數「真的重繪了幾次」；子樹沒重繪、也沒有新連線或解析度變動，這一輪就不擷取、不送出。閒置時 CPU 與頻寬接近 0。`skipUnchanged: false` 可關閉（內容以 Flutter 看不到的方式改變時）；`nativeCapture`（PlatformView）一律每輪擷取。 |
+| 依網頁尺寸擷取 | 網頁回報顯示尺寸後，擷取倍率 = 網頁需要的像素數 ÷ 元件的 logical 大小（上限 `maxPixelRatio`，預設 3）；回報前用 `pixelRatio`。 |
+| 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（2）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
+| 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；被取代的幀立刻回 `ack`。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
+| 不複製像素 | 網頁端 RGBA 的 `ImageData` 直接包住收到的緩衝區。 |
 
 ## 現況與限制
 

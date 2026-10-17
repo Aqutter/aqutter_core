@@ -1,5 +1,8 @@
 import 'native_session.dart';
 
+/// 每個連線允許同時未被確認的幀數（Web 平台不支援，僅為與原生版介面一致）。
+const int aqutterNativeMaxInFlight = 2;
+
 /// 網頁端連線所需的資訊（Web 平台不支援）。
 class AqutterNativeEndpoint {
   const AqutterNativeEndpoint({required this.port, required this.token});

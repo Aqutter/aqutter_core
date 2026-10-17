@@ -9,6 +9,9 @@ import 'package:flutter/foundation.dart';
 import 'native_frame.dart';
 import 'native_session.dart';
 
+/// 每個連線允許同時未被確認的幀數。
+const int aqutterNativeMaxInFlight = 2;
+
 /// 網頁端連線所需的資訊；由 App 以 bridge 交給網頁。
 class AqutterNativeEndpoint {
   const AqutterNativeEndpoint({required this.port, required this.token});
@@ -25,6 +28,10 @@ class AqutterNativeEndpoint {
 ///
 /// 連線路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。
 /// 單例；第一次 [ensureStarted] 時以暫時埠啟動。
+///
+/// 流量控制：每個連線最多同時有 [aqutterNativeMaxInFlight] 幀未被確認；網頁每處理完（畫出或丟棄）
+/// 一幀就回 `{"type":"ack"}`。超過上限時不再送新幀給該連線，所有連線都滿時工作階段也不再擷取。
+/// 網頁回報顯示尺寸的 `{"type":"resize"}` 由本類別處理，不會轉給 `onMessage`。
 class AqutterNativeHost {
   AqutterNativeHost._();
 
@@ -36,6 +43,9 @@ class AqutterNativeHost {
 
   final Map<String, AqutterNativeSession> _sessions = {};
   final Map<String, Set<WebSocket>> _clients = {};
+
+  /// 每個連線目前未被確認的幀數。
+  final Map<WebSocket, int> _inFlight = {};
 
   /// 啟動伺服器（冪等）並回傳連線資訊。
   Future<AqutterNativeEndpoint> ensureStarted() {
@@ -63,7 +73,10 @@ class AqutterNativeHost {
       throw StateError('Native session "${session.id}" is already registered');
     }
     _sessions[session.id] = session;
-    session.attachTransport((frame) => _broadcast(session.id, frame));
+    session.attachTransport(
+      send: (frame) => _broadcast(session.id, frame),
+      canSend: () => _canSend(session.id),
+    );
     session.clientCountChanged(_clients[session.id]?.length ?? 0);
   }
 
@@ -81,8 +94,21 @@ class AqutterNativeHost {
 
   bool hasSession(String id) => _sessions.containsKey(id);
 
+  bool _canSend(String id) {
+    final sockets = _clients[id];
+    if (sockets == null || sockets.isEmpty) {
+      return true;
+    }
+    return sockets.any((socket) => (_inFlight[socket] ?? 0) < aqutterNativeMaxInFlight);
+  }
+
   void _broadcast(String id, Uint8List frame) {
     for (final socket in List<WebSocket>.of(_clients[id] ?? const <WebSocket>{})) {
+      final pending = _inFlight[socket] ?? 0;
+      if (pending >= aqutterNativeMaxInFlight) {
+        continue; // 這個連線還沒消化完，丟掉這一幀而不是堆在記憶體
+      }
+      _inFlight[socket] = pending + 1;
       socket.add(frame);
     }
   }
@@ -105,9 +131,10 @@ class AqutterNativeHost {
     final socket = await WebSocketTransformer.upgrade(request);
     final sockets = _clients.putIfAbsent(id, () => <WebSocket>{});
     sockets.add(socket);
+    _inFlight[socket] = 0;
     _sessions[id]?.clientCountChanged(sockets.length);
     socket.listen(
-      (data) => _onData(id, data),
+      (data) => _onData(id, socket, data),
       onDone: () => _onClosed(id, socket),
       onError: (_) => _onClosed(id, socket),
     );
@@ -119,10 +146,11 @@ class AqutterNativeHost {
       return;
     }
     sockets.remove(socket);
+    _inFlight.remove(socket);
     _sessions[id]?.clientCountChanged(sockets.length);
   }
 
-  void _onData(String id, dynamic data) {
+  void _onData(String id, WebSocket socket, dynamic data) {
     if (data is! String) {
       return;
     }
@@ -135,11 +163,35 @@ class AqutterNativeHost {
       if (type is! String) {
         return;
       }
-      _sessions[id]?.handleMessage(AqutterNativeMessage(type, decoded));
+      switch (type) {
+        case 'ack':
+          final pending = _inFlight[socket];
+          if (pending != null && pending > 0) {
+            _inFlight[socket] = pending - 1;
+          }
+        case 'resize':
+          _applyResize(id, decoded);
+        default:
+          _sessions[id]?.handleMessage(AqutterNativeMessage(type, decoded));
+      }
     }
     catch (error) {
       debugPrint('[aqutter-native:$id] bad message: $error');
     }
+  }
+
+  void _applyResize(String id, Map<String, dynamic> message) {
+    final width = message['width'];
+    final height = message['height'];
+    final ratio = message['dpr'];
+    if (width is! num || height is! num || ratio is! num || width <= 0 || height <= 0 || ratio <= 0) {
+      return;
+    }
+    _sessions[id]?.updateViewport(AqutterNativeViewport(
+      width: width.toDouble(),
+      height: height.toDouble(),
+      devicePixelRatio: ratio.toDouble(),
+    ));
   }
 
   /// 關閉伺服器並清掉所有工作階段（測試或 App 結束時用）。

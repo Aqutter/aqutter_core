@@ -8,20 +8,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('frame encoding', () {
-    test('writes a little-endian 20 byte header followed by the payload', () {
+    test('writes a little-endian 24 byte header followed by the payload', () {
       final frame = AqutterNativeFrame(
         width: 3,
         height: 2,
         format: AqutterNativeFormat.rgba,
         payload: Uint8List.fromList([1, 2, 3, 4]),
       );
-      final bytes = encodeAqutterNativeFrame(frame, sentAtMs: 1700000000000);
+      final bytes = encodeAqutterNativeFrame(frame, seq: 7, sentAtMs: 1700000000000);
       final view = ByteData.sublistView(bytes);
       expect(bytes.length, aqutterNativeHeaderLength + 4);
       expect(view.getUint32(0, Endian.little), 3);
       expect(view.getUint32(4, Endian.little), 2);
       expect(view.getUint32(8, Endian.little), 1);
-      expect(view.getFloat64(12, Endian.little), 1700000000000);
+      expect(view.getUint32(12, Endian.little), 7);
+      expect(view.getFloat64(16, Endian.little), 1700000000000);
       expect(bytes.sublist(aqutterNativeHeaderLength), [1, 2, 3, 4]);
     });
 
@@ -94,6 +95,82 @@ void main() {
     test('refuses a duplicate session id', () async {
       host.register(AqutterNativeSession(id: 'dup', capture: () async => null));
       expect(() => host.register(AqutterNativeSession(id: 'dup', capture: () async => null)), throwsStateError);
+    });
+
+    test('stops sending when the client does not acknowledge, and resumes after acks', () async {
+      var captures = 0;
+      final session = AqutterNativeSession(
+        id: 'pressure',
+        fps: 120,
+        capture: () async {
+          captures += 1;
+          return AqutterNativeFrame(width: 1, height: 1, format: AqutterNativeFormat.rgba, payload: Uint8List(4));
+        },
+      );
+      host.register(session);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'pressure');
+      addTearDown(() => socket.close());
+      var frames = 0;
+      socket.listen((_) => frames += 1);
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(frames, aqutterNativeMaxInFlight);
+      // 沒有確認時擷取也停了（最多多一次已在進行中的）
+      expect(captures, lessThanOrEqualTo(aqutterNativeMaxInFlight + 1));
+
+      socket.add(jsonEncode({'type': 'ack', 'seq': 1}));
+      socket.add(jsonEncode({'type': 'ack', 'seq': 2}));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(frames, aqutterNativeMaxInFlight * 2);
+    });
+
+    test('numbers frames in increasing order', () async {
+      final seqs = <int>[];
+      host.register(AqutterNativeSession(
+        id: 'seq',
+        fps: 60,
+        capture: () async => AqutterNativeFrame(width: 1, height: 1, format: AqutterNativeFormat.rgba, payload: Uint8List(4)),
+      ));
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'seq');
+      addTearDown(() => socket.close());
+      final done = Completer<void>();
+      socket.listen((data) {
+        seqs.add(ByteData.sublistView(Uint8List.fromList(data as List<int>)).getUint32(12, Endian.little));
+        socket.add(jsonEncode({'type': 'ack', 'seq': seqs.last}));
+        if (seqs.length == 5) {
+          done.complete();
+        }
+      });
+      await done.future.timeout(const Duration(seconds: 2));
+      expect(seqs, [1, 2, 3, 4, 5]);
+    });
+
+    test('resize updates the viewport and is not forwarded to onMessage', () async {
+      final received = <AqutterNativeMessage>[];
+      final session = AqutterNativeSession(id: 'resize', capture: () async => null, onMessage: received.add);
+      host.register(session);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'resize');
+      addTearDown(() => socket.close());
+      socket
+        ..add(jsonEncode({'type': 'resize', 'width': 320, 'height': 200, 'dpr': 2}))
+        ..add(jsonEncode({'type': 'resize', 'width': -1, 'height': 200, 'dpr': 2}))
+        ..add(jsonEncode({'type': 'tap', 'x': 0.5, 'y': 0.5}));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(session.viewport, const AqutterNativeViewport(width: 320, height: 200, devicePixelRatio: 2));
+      expect(received.map((m) => m.type), ['tap']);
+    });
+
+    test('markDirty is consumed once and set again by a new viewport', () {
+      final session = AqutterNativeSession(id: 'dirty', capture: () async => null);
+      expect(session.takeDirty(), isTrue);
+      expect(session.takeDirty(), isFalse);
+      session.updateViewport(const AqutterNativeViewport(width: 1, height: 1, devicePixelRatio: 1));
+      expect(session.takeDirty(), isTrue);
+      session.updateViewport(const AqutterNativeViewport(width: 1, height: 1, devicePixelRatio: 1));
+      expect(session.takeDirty(), isFalse);
     });
 
     test('ignores malformed messages', () async {

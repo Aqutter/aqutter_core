@@ -1,0 +1,88 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:aqutter_core/aqutter_core.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// 連上工作階段並對每幀回 ack，統計一段時間內收到幾幀、各幀大小與最後一幀的像素寬。
+Future<({int frames, int bytes, int width})> _measure(WidgetTester tester, String id, Duration window, {Map<String, Object>? resize, ValueNotifier<int>? animate}) async {
+  var frames = 0;
+  var bytes = 0;
+  var width = 0;
+  await tester.runAsync(() async {
+    final endpoint = await AqutterNativeHost.instance.ensureStarted();
+    final socket = await WebSocket.connect('ws://127.0.0.1:${endpoint.port}/native/$id?token=${endpoint.token}');
+    socket.listen((data) {
+      final list = data as List<int>;
+      frames += 1;
+      bytes += list.length;
+      width = (list[0]) | (list[1] << 8) | (list[2] << 16) | (list[3] << 24);
+      socket.add(jsonEncode({'type': 'ack'}));
+    });
+    if (resize != null) {
+      socket.add(jsonEncode({'type': 'resize', ...resize}));
+    }
+    final end = DateTime.now().add(window);
+    while (DateTime.now().isBefore(end)) {
+      if (animate != null) {
+        animate.value += 1; // 內容每 16ms 改變一次，並驅動一幀
+        await tester.pump();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    await socket.close();
+    // 等伺服器端處理完斷線：否則 widget dispose 時 host 還會去關這個連線，在 fake async 下留下計時器
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+  });
+  return (frames: frames, bytes: bytes, width: width);
+}
+
+class _Painter extends StatelessWidget {
+  const _Painter(this.counter);
+
+  final ValueNotifier<int> counter;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: counter,
+        builder: (context, n, _) => ColoredBox(color: Color(0xFF000000 + (n * 7919) % 0xFFFFFF), child: const SizedBox.expand()),
+      );
+}
+
+void main() {
+  tearDown(() => AqutterNativeHost.instance.stop());
+
+  Widget host(Widget child) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(child: SizedBox(width: 200, height: 100, child: child)),
+      );
+
+  testWidgets('static content is captured once, not on every tick', (tester) async {
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'static', fps: 60, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    final result = await _measure(tester, 'static', const Duration(milliseconds: 600));
+    expect(result.frames, inInclusiveRange(1, 2));
+  });
+
+  testWidgets('skipUnchanged: false keeps streaming the same picture (baseline)', (tester) async {
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'baseline', fps: 60, skipUnchanged: false, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    final result = await _measure(tester, 'baseline', const Duration(milliseconds: 600));
+    expect(result.frames, greaterThan(5));
+  });
+
+  testWidgets('changing content keeps streaming', (tester) async {
+    final counter = ValueNotifier<int>(0);
+    addTearDown(counter.dispose);
+    await tester.pumpWidget(host(AqutterNative(sessionId: 'moving', fps: 60, child: _Painter(counter))));
+    final result = await _measure(tester, 'moving', const Duration(milliseconds: 600), animate: counter);
+    expect(result.frames, greaterThan(5));
+  });
+
+  testWidgets('captures at the resolution the web reported', (tester) async {
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'sized', fps: 60, pixelRatio: 3, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    // 元件 200x100 logical；網頁顯示 100x50 CSS px、dpr 2 → 只需要 200x100 像素（倍率 1），不是 pixelRatio 3 的 600 寬
+    final result = await _measure(tester, 'sized', const Duration(milliseconds: 600), resize: {'width': 100, 'height': 50, 'dpr': 2});
+    expect(result.width, 200);
+  });
+}

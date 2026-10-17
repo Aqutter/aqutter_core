@@ -30,21 +30,39 @@ class AqutterNativeFrame {
 }
 
 /// 幀標頭長度（bytes）。
-const int aqutterNativeHeaderLength = 20;
+const int aqutterNativeHeaderLength = 24;
 
 /// 把幀編碼為 WebSocket 二進位訊息。
 ///
-/// 版面（little-endian）：`[w u32 | h u32 | fmt u32 | sentAt f64 (epoch ms)][payload]`。
+/// 版面（little-endian）：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][payload]`。
+/// [seq] 為每個工作階段遞增的序號，網頁端據此丟棄亂序的舊幀並回覆確認（`ack`）。
 /// 網頁端（`@aqutter/aqutter` 的 `AqutterNative`）依同一版面解碼；兩端必須成對修改。
-Uint8List encodeAqutterNativeFrame(AqutterNativeFrame frame, {required int sentAtMs}) {
+Uint8List encodeAqutterNativeFrame(AqutterNativeFrame frame, {required int seq, required int sentAtMs}) {
   final out = Uint8List(aqutterNativeHeaderLength + frame.payload.length);
   final header = ByteData.view(out.buffer, 0, aqutterNativeHeaderLength);
   header.setUint32(0, frame.width, Endian.little);
   header.setUint32(4, frame.height, Endian.little);
   header.setUint32(8, frame.format.wire, Endian.little);
-  header.setFloat64(12, sentAtMs.toDouble(), Endian.little);
+  header.setUint32(12, seq & 0xFFFFFFFF, Endian.little);
+  header.setFloat64(16, sentAtMs.toDouble(), Endian.little);
   out.setRange(aqutterNativeHeaderLength, out.length, frame.payload);
   return out;
+}
+
+/// 網頁端回報的顯示尺寸（CSS 像素）與裝置像素比；原生端據此決定擷取解析度。
+class AqutterNativeViewport {
+  const AqutterNativeViewport({required this.width, required this.height, required this.devicePixelRatio});
+
+  final double width;
+  final double height;
+  final double devicePixelRatio;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AqutterNativeViewport && other.width == width && other.height == height && other.devicePixelRatio == devicePixelRatio;
+
+  @override
+  int get hashCode => Object.hash(width, height, devicePixelRatio);
 }
 
 /// 網頁端經 WebSocket 回傳的訊息（手勢或自訂指令）。

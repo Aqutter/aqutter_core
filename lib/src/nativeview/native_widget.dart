@@ -1,5 +1,7 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
@@ -24,6 +26,8 @@ class AqutterNative extends StatefulWidget {
     this.onMessage,
     this.fps = 30,
     this.pixelRatio = 1.5,
+    this.maxPixelRatio = 3.0,
+    this.skipUnchanged = true,
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeViewTypeContains,
@@ -35,8 +39,20 @@ class AqutterNative extends StatefulWidget {
   final AqutterNativeMessageHandler? onMessage;
   final int fps;
 
-  /// 擷取解析度倍率（logical → pixel）；調低換 fps、調高換畫質。
+  /// 網頁尚未回報顯示尺寸前使用的擷取倍率（logical → pixel）。
+  ///
+  /// 網頁回報顯示尺寸後（`<aqutter-native>` 會自動回報），改依「網頁實際需要多少像素」擷取，
+  /// 不再使用本值；調低換 fps、調高換畫質只在回報前有效。
   final double pixelRatio;
+
+  /// 依網頁尺寸擷取時的倍率上限，避免高密度螢幕上把畫面擷取得比原生內容還細。
+  final double maxPixelRatio;
+
+  /// 內容沒有重繪時跳過擷取（閒置時不耗 CPU 與頻寬）。
+  ///
+  /// 以 `RepaintBoundary` 擷取時才有效；[nativeCapture]（PlatformView）的內容變化 Flutter 看不到，
+  /// 一律每輪擷取。內容若是以 Flutter 之外的方式改變（例如 texture 外部更新），請設為 false。
+  final bool skipUnchanged;
   final AqutterNativeFormat format;
 
   /// 在 iOS 以原生 `drawHierarchy` 擷取（PlatformView 用）；其他平台忽略。
@@ -52,6 +68,9 @@ class AqutterNative extends StatefulWidget {
 class _AqutterNativeState extends State<AqutterNative> {
   final GlobalKey _boundaryKey = GlobalKey();
   AqutterNativeSession? _session;
+
+  /// 上一次擷取時的重繪次數；沒變代表畫面沒變。
+  int _lastPaintCount = -1;
 
   @override
   void initState() {
@@ -95,9 +114,14 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   Future<AqutterNativeFrame?> _capture() async {
     final box = _boundaryKey.currentContext?.findRenderObject();
-    if (box is! RenderRepaintBoundary || !box.hasSize) {
+    if (box is! _RenderCountingRepaintBoundary || !box.hasSize) {
       return null;
     }
+    final session = _session;
+    if (session == null) {
+      return null;
+    }
+    final forced = session.takeDirty();
     if (widget.nativeCapture && AqutterNativeCapture.isSupported) {
       final origin = box.localToGlobal(Offset.zero);
       return AqutterNativeCapture.capture(
@@ -105,10 +129,18 @@ class _AqutterNativeState extends State<AqutterNative> {
         viewTypeContains: widget.nativeViewTypeContains,
       );
     }
-    if (box.debugNeedsPaint) {
+    // 開發模式下尚未繪製就 toImage 會觸發斷言；release 沒有這個旗標，故以 kReleaseMode 守住
+    if (!kReleaseMode && box.debugNeedsPaint) {
+      session.markDirty();
       return null;
     }
-    final image = await box.toImage(pixelRatio: widget.pixelRatio);
+    final paintCount = box.paintCount;
+    if (widget.skipUnchanged && !forced && paintCount == _lastPaintCount) {
+      return null;
+    }
+    _lastPaintCount = paintCount;
+
+    final image = await box.toImage(pixelRatio: _pixelRatioFor(box.size, session.viewport));
     try {
       final byteFormat = widget.format == AqutterNativeFormat.png
           ? ui.ImageByteFormat.png
@@ -129,6 +161,18 @@ class _AqutterNativeState extends State<AqutterNative> {
     }
   }
 
+  /// 擷取倍率：網頁回報了顯示尺寸就剛好擷取到網頁需要的像素數（含 devicePixelRatio），否則用 [AqutterNative.pixelRatio]。
+  double _pixelRatioFor(Size size, AqutterNativeViewport? viewport) {
+    if (viewport == null || size.isEmpty) {
+      return widget.pixelRatio;
+    }
+    final needed = math.max(
+      viewport.width * viewport.devicePixelRatio / size.width,
+      viewport.height * viewport.devicePixelRatio / size.height,
+    );
+    return needed.clamp(0.25, widget.maxPixelRatio);
+  }
+
   @override
   void dispose() {
     _unregister();
@@ -137,6 +181,26 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(key: _boundaryKey, child: widget.child);
+    return _CountingRepaintBoundary(key: _boundaryKey, child: widget.child);
+  }
+}
+
+/// 會記錄「真的重繪了幾次」的 [RepaintBoundary]。
+///
+/// 子樹沒變時，Flutter 會直接重用快取的圖層而不呼叫 [paint]，所以 [paintCount] 沒變就代表畫面沒變。
+class _CountingRepaintBoundary extends SingleChildRenderObjectWidget {
+  const _CountingRepaintBoundary({super.key, super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderCountingRepaintBoundary();
+}
+
+class _RenderCountingRepaintBoundary extends RenderRepaintBoundary {
+  int paintCount = 0;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    paintCount += 1;
+    super.paint(context, offset);
   }
 }

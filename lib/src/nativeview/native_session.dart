@@ -34,7 +34,15 @@ class AqutterNativeSession {
   /// 送出一個二進位幀給所有連線；由 host 掛上。
   void Function(Uint8List frame)? _send;
 
+  /// 是否有任何連線還能接收新幀（未確認的幀沒超過上限）；由 host 掛上。
+  bool Function()? _canSend;
+
   int _clients = 0;
+  int _seq = 0;
+  bool _dirty = true;
+
+  /// 網頁端最近回報的顯示尺寸；尚未回報為 null。
+  AqutterNativeViewport? viewport;
   Timer? _timer;
   bool _capturing = false;
 
@@ -42,12 +50,35 @@ class AqutterNativeSession {
   double captureMs = 0;
 
   /// host 連上 / 斷開時呼叫。
-  void attachTransport(void Function(Uint8List frame) send) {
+  void attachTransport({required void Function(Uint8List frame) send, required bool Function() canSend}) {
     _send = send;
+    _canSend = canSend;
+  }
+
+  /// 標記「下一輪必須擷取」：有新連線、解析度改變等不由內容重繪觸發的情況。
+  void markDirty() => _dirty = true;
+
+  /// 取走並清除 [markDirty] 的標記；供擷取來源判斷這一輪是否可以跳過。
+  bool takeDirty() {
+    final dirty = _dirty;
+    _dirty = false;
+    return dirty;
+  }
+
+  /// 網頁端回報顯示尺寸（host 呼叫）。尺寸改變時下一輪會重新擷取。
+  void updateViewport(AqutterNativeViewport next) {
+    if (viewport == next) {
+      return;
+    }
+    viewport = next;
+    markDirty();
   }
 
   /// 網頁連線數改變。
   void clientCountChanged(int count) {
+    if (count > _clients) {
+      markDirty();
+    }
     _clients = count;
     if (count > 0 && _timer == null) {
       _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ fps), (_) => _tick());
@@ -61,7 +92,8 @@ class AqutterNativeSession {
   bool get hasClients => _clients > 0;
 
   Future<void> _tick() async {
-    if (_capturing || _clients == 0) {
+    // 沒人看、或所有連線都來不及處理（未確認的幀太多）時不擷取：多送只會在對方堆積
+    if (_capturing || _clients == 0 || !(_canSend?.call() ?? true)) {
       return;
     }
     _capturing = true;
@@ -74,7 +106,8 @@ class AqutterNativeSession {
       }
       final ms = stopwatch.elapsedMicroseconds / 1000;
       captureMs = captureMs == 0 ? ms : captureMs * 0.8 + ms * 0.2;
-      _send?.call(encodeAqutterNativeFrame(frame, sentAtMs: DateTime.now().millisecondsSinceEpoch));
+      _seq += 1;
+      _send?.call(encodeAqutterNativeFrame(frame, seq: _seq, sentAtMs: DateTime.now().millisecondsSinceEpoch));
     }
     catch (error) {
       debugPrint('[aqutter-native:$id] capture failed: $error');
@@ -91,5 +124,6 @@ class AqutterNativeSession {
     _timer?.cancel();
     _timer = null;
     _send = null;
+    _canSend = null;
   }
 }
