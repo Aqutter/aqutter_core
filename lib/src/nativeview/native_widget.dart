@@ -24,7 +24,7 @@ class AqutterNative extends StatefulWidget {
     required this.sessionId,
     required this.child,
     this.onMessage,
-    this.fps = 30,
+    this.fps = 60,
     this.pixelRatio = 1.5,
     this.maxPixelRatio = 3.0,
     this.skipUnchanged = true,
@@ -122,6 +122,16 @@ class _AqutterNativeState extends State<AqutterNative> {
       return null;
     }
     final forced = session.takeDirty();
+    try {
+      return await _captureFrame(box, session, forced);
+    }
+    catch (_) {
+      session.markDirty(); // 失敗不能吃掉「必須擷取」的標記，否則畫面沒變時永遠不會重試
+      rethrow;
+    }
+  }
+
+  Future<AqutterNativeFrame?> _captureFrame(_RenderCountingRepaintBoundary box, AqutterNativeSession session, bool forced) async {
     if (widget.nativeCapture && AqutterNativeCapture.isSupported) {
       final origin = box.localToGlobal(Offset.zero);
       return AqutterNativeCapture.capture(
@@ -140,12 +150,16 @@ class _AqutterNativeState extends State<AqutterNative> {
     }
     _lastPaintCount = paintCount;
 
+    final imageWatch = Stopwatch()..start();
     final image = await box.toImage(pixelRatio: _pixelRatioFor(box.size, session.viewport));
+    session.stats.add('toImage', imageWatch);
     try {
       final byteFormat = widget.format == AqutterNativeFormat.png
           ? ui.ImageByteFormat.png
           : ui.ImageByteFormat.rawStraightRgba;
+      final readWatch = Stopwatch()..start();
       final data = await image.toByteData(format: byteFormat);
+      session.stats.add('toByteData', readWatch);
       if (data == null) {
         return null;
       }

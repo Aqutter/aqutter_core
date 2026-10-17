@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'native_frame.dart';
+import 'native_stats.dart';
+
+/// 同時進行中的擷取上限（流水線深度）。
+const int aqutterNativeMaxConcurrentCaptures = 2;
 
 /// 擷取一幀；回 null 表示這一輪沒有可送的畫面（尚未繪製、擷取失敗等）。
 typedef AqutterNativeFrameCapture = Future<AqutterNativeFrame?> Function();
@@ -19,7 +23,7 @@ class AqutterNativeSession {
     required this.id,
     required this.capture,
     this.onMessage,
-    this.fps = 30,
+    this.fps = 60,
   }) : assert(fps > 0 && fps <= 120, 'fps must be within 1..120');
 
   /// 與網頁端 `<aqutter-native session="…">` 一致的識別字。
@@ -28,7 +32,7 @@ class AqutterNativeSession {
   final AqutterNativeFrameCapture capture;
   final AqutterNativeMessageHandler? onMessage;
 
-  /// 目標幀率（擷取較慢時實際會更低，不會堆積）。
+  /// 目標幀率（擷取較慢時實際會更低，不會堆積）。預設 60。
   final int fps;
 
   /// 送出一個二進位幀給所有連線；由 host 掛上。
@@ -39,6 +43,9 @@ class AqutterNativeSession {
 
   int _clients = 0;
 
+  /// 各階段耗時統計（`AQUTTER_NATIVE_STATS` 開啟時才記錄）。
+  late final AqutterNativeStats stats = AqutterNativeStats(id);
+
   /// 網頁端回報「看得到」的連線數；沒有任何看得到的連線時暫停擷取（元素被捲出畫面、分頁隱藏等）。
   int _visibleClients = 0;
   int _seq = 0;
@@ -47,7 +54,11 @@ class AqutterNativeSession {
   /// 網頁端最近回報的顯示尺寸；尚未回報為 null。
   AqutterNativeViewport? viewport;
   Timer? _timer;
-  bool _capturing = false;
+  /// 同時進行中的擷取數；允許少量重疊（流水線），讓「讀回像素」與下一幀的準備可以並行。
+  int _capturesInProgress = 0;
+
+  /// 最近開始的擷取；用來讓送出順序與擷取開始順序一致。
+  _CaptureSlot? _lastSlot;
 
   /// 最近一次擷取耗時（毫秒，指數平滑）；供除錯 / 效能觀察。
   double captureMs = 0;
@@ -115,27 +126,45 @@ class AqutterNativeSession {
 
   Future<void> _tick() async {
     // 沒人看、或所有連線都來不及處理（未確認的幀太多）時不擷取：多送只會在對方堆積
-    if (_capturing || _clients == 0 || !(_canSend?.call() ?? true)) {
+    if (_capturesInProgress >= aqutterNativeMaxConcurrentCaptures || _clients == 0 || !(_canSend?.call() ?? true)) {
       return;
     }
-    _capturing = true;
+    _capturesInProgress += 1;
     final stopwatch = Stopwatch()..start();
+    final started = capture();
+    final previous = _lastSlot;
+    final slot = _CaptureSlot();
+    _lastSlot = slot;
     try {
-      final frame = await capture();
+      final frame = await started;
       stopwatch.stop();
+      // 前一個擷取還沒送出時才等它：不論哪個擷取先完成，都依開始順序送出，避免新幀被舊幀蓋掉。
+      // 前一個已經結束就不 await（多一次事件迴圈輪轉會平白增加延遲）。
+      if (previous != null && !previous.complete) {
+        await previous.completer.future;
+      }
       if (frame == null) {
         return;
       }
+      stats.add('capture', stopwatch);
       final ms = stopwatch.elapsedMicroseconds / 1000;
       captureMs = captureMs == 0 ? ms : captureMs * 0.8 + ms * 0.2;
       _seq += 1;
-      _send?.call(encodeAqutterNativeFrame(frame, seq: _seq, sentAtMs: DateTime.now().millisecondsSinceEpoch));
+      final encodeWatch = Stopwatch()..start();
+      final message = encodeAqutterNativeFrame(frame, seq: _seq, sentAtMs: DateTime.now().millisecondsSinceEpoch);
+      stats.add('encode', encodeWatch);
+      final sendWatch = Stopwatch()..start();
+      _send?.call(message);
+      stats.add('send', sendWatch);
+      stats.frameSent(message.length);
     }
     catch (error) {
       debugPrint('[aqutter-native:$id] capture failed: $error');
     }
     finally {
-      _capturing = false;
+      _capturesInProgress -= 1;
+      slot.complete = true;
+      slot.completer.complete();
     }
   }
 
@@ -148,4 +177,10 @@ class AqutterNativeSession {
     _send = null;
     _canSend = null;
   }
+}
+
+/// 一個進行中的擷取；[complete] 為 true 代表它已送出（或放棄）。
+class _CaptureSlot {
+  bool complete = false;
+  final Completer<void> completer = Completer<void>();
 }

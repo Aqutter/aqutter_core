@@ -911,14 +911,26 @@ class AqutterWebView extends StatefulWidget {
 }
 
 class _AqutterWebViewState extends State<AqutterWebView> {
+  /// 這個 State 存活期間用過的所有平台實作。
+  ///
+  /// 父層重建時會傳入新的 [AqutterWebView]（也就是新的平台物件），但原生 view 與 controller 是掛在**第一個**
+  /// 平台物件上、不會重建。只 dispose 目前的 `widget.platform` 會讓第一個物件的 controller、
+  /// method channel handler 與（Android 的）鍵盤觀察者永遠不被釋放。
+  final Set<AqutterPlatformWebViewWidget> _platforms = {};
+
   @override
   Widget build(BuildContext context) {
+    _platforms.add(widget.platform);
     return widget.platform.build(context);
   }
 
   @override
   void dispose() {
-    widget.platform.dispose();
+    _platforms.add(widget.platform);
+    for (final platform in _platforms) {
+      platform.dispose();
+    }
+    _platforms.clear();
     super.dispose();
   }
 }

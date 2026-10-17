@@ -94,6 +94,8 @@ class AqutterNativeHost {
     session.dispose();
     final sockets = _clients.remove(session.id);
     for (final socket in sockets ?? const <WebSocket>{}) {
+      _inFlight.remove(socket);
+      _hidden.remove(socket);
       socket.close(WebSocketStatus.goingAway);
     }
   }
@@ -134,7 +136,15 @@ class AqutterNativeHost {
       return;
     }
     final id = segments[1];
-    final socket = await WebSocketTransformer.upgrade(request);
+    // 關閉 permessage-deflate：瀏覽器預設會協商壓縮，對每幀數 MB 的原始像素做 zlib 會讓送出一幀多花數倍時間
+    final WebSocket socket;
+    try {
+      socket = await WebSocketTransformer.upgrade(request, compression: CompressionOptions.compressionOff);
+    }
+    catch (error) {
+      debugPrint('[aqutter-native] websocket upgrade failed: $error');
+      return;
+    }
     final sockets = _clients.putIfAbsent(id, () => <WebSocket>{});
     sockets.add(socket);
     _inFlight[socket] = 0;
@@ -147,13 +157,14 @@ class AqutterNativeHost {
   }
 
   void _onClosed(String id, WebSocket socket) {
+    // 工作階段已經被取消登記時 _clients[id] 已不存在，但這個連線的狀態仍要清掉，否則每次重新註冊都會留下殘骸
+    _inFlight.remove(socket);
+    _hidden.remove(socket);
     final sockets = _clients[id];
     if (sockets == null) {
       return;
     }
     sockets.remove(socket);
-    _inFlight.remove(socket);
-    _hidden.remove(socket);
     _sessions[id]?.clientCountChanged(sockets.length, visible: _visibleCount(id));
   }
 

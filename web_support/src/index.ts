@@ -82,7 +82,8 @@ declare global {
                 let javaScriptBridgeEnabled = webView.javaScriptBridgeEnabled;
                 if (javaScriptBridgeOriginAllowList != null) {
                   javaScriptBridgeEnabled = javaScriptBridgeOriginAllowList
-                      .map(allowedOriginRule => new RegExp(allowedOriginRule))
+                      // 與 Android 的完整比對（matcher.matches()）一致：規則必須吻合整個 origin，而不是其中一段
+                      .map(allowedOriginRule => new RegExp('^(?:' + allowedOriginRule + ')$'))
                       .some((rx) => {
                         return rx.test(iframe.contentWindow!.location.origin);
                       })
@@ -132,7 +133,7 @@ declare global {
                     if (jsRegExpArray.length > 1) {
                       jsRegExpArray += ",";
                     }
-                    jsRegExpArray += `new RegExp('${allowedOriginRule.replace("\'", "\\'")}')`;
+                    jsRegExpArray += `new RegExp('^(?:${allowedOriginRule.replace("\'", "\\'")})$')`;
                   }
                   if (jsRegExpArray.length > 1) {
                     jsRegExpArray += "]";

@@ -70,9 +70,42 @@ little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][pay
 | 依網頁尺寸擷取 | 網頁回報顯示尺寸後，擷取成「與網頁元素等面積」的像素數（含 devicePixelRatio；倍率上限 `maxPixelRatio`，預設 3）；回報前用 `pixelRatio`。以面積計算，被鏡像對象與網頁元素長寬比不同時也不會過度擷取；長寬比相同時剛好 1:1，建議兩者長寬比一致。 |
 | 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（2）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
 | 同 id 取代 | 同一個 session id 再次註冊時，新的取代舊的並承接既有連線（Flutter 重建子樹時會短暫出現兩次）；舊的稍後 dispose 不影響新的。 |
+| 關閉 WebSocket 壓縮 | dart:io 的 WebSocket 預設會與瀏覽器協商 permessage-deflate，每幀數 MB 的原始像素都被 zlib 壓一次；host 以 `CompressionOptions.compressionOff` 關掉。macOS 實測 `send` 階段每幀 7.8ms → 1.5ms，幀率 42 → 55 fps（小元素）、26 → 48.5 fps（大元素）。 |
+| 擷取流水線 | 最多 `aqutterNativeMaxConcurrentCaptures`（2）個擷取同時進行，讓像素讀回與下一幀的準備重疊；送出順序仍依擷取開始順序。慢 GPU 上讀回耗時（Android 模擬器 13–25ms）才有差別。 |
+| 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
 | 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；被取代的幀立刻回 `ack`。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
 | 不複製像素 | 網頁端 RGBA 的 `ImageData` 直接包住收到的緩衝區。 |
+
+## 量測
+
+以 `--dart-define=AQUTTER_NATIVE_STATS=true`（或寫進 env 檔）開啟，host 每 2 秒印一行各階段平均耗時：
+
+```
+[aqutter-native:<id>] 59.8 fps, 3183 KB/frame, 185.8 MB/s | toImage=0.3ms toByteData=4.3ms capture=4.7ms encode=1.4ms send=1.5ms
+```
+
+| 階段 | 意義 |
+|---|---|
+| `toImage` | `RepaintBoundary` 擷取成 `ui.Image` |
+| `toByteData` | GPU 像素讀回成位元組 |
+| `capture` | 以上合計（含等待） |
+| `encode` | 加標頭（複製一份） |
+| `send` | `socket.add` |
+
+網頁端 `aqutter-frame` 事件的 `detail` 帶 `bytes`、`latencyMs`、`drawMs`。
+
+實測（macOS release，內容每個 animation frame 都改變；Android 為模擬器 debug，繪製本身就很慢，不代表實機）：
+
+| 環境 | 元素（CSS） | 每幀 | 網頁端 fps | 送出端 fps |
+|---|---|---|---|---|
+| macOS，關壓縮前 | 727×280 | 3.1MB | 42 | 43 |
+| macOS，關壓縮後 | 727×280 | 3.1MB | 55 | 約 60 |
+| macOS，關壓縮前 | 727×480 | 5.3MB | 26 | 26 |
+| macOS，關壓縮後 | 727×480 | 5.3MB | 48.5 | 約 58 |
+| Android 模擬器 | 356×280 | 2.6MB | 10 | 10 |
+
+macOS 的測試驅動每個 animation frame（約 60Hz）才改一次內容，所以約 60 fps 是這個測試的上限，不是管線的上限（單幀處理約 8–12ms）。流水線與預設 60 fps 在螢幕鎖定時無法在 macOS 上量測，未有數據。
 
 ## 現況與限制
 
