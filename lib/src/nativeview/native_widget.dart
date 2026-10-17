@@ -18,7 +18,7 @@ import 'native_capture.dart';
 /// 經 localhost WebSocket 送給網頁畫進 canvas；網頁端的手勢與指令以 [onMessage] 回來，由 App 套用到 [child]
 /// 的狀態。這讓網頁能在原生內容（地圖、Flutter 自繪元件）**之上**疊 HTML / 做 z-index。
 ///
-/// 擷取方式：預設用 [RepaintBoundary] 擷取（純 Flutter 內容、Android 上的 PlatformView）；
+/// 擷取方式：預設用 [RepaintBoundary] 擷取（只適用純 Flutter 內容；Texture 與 PlatformView 擷取不到，改用 [captureOverride]）；
 /// iOS 的 PlatformView 需設 [nativeCapture] 走 `drawHierarchy`。
 class AqutterNative extends StatefulWidget {
   const AqutterNative({
