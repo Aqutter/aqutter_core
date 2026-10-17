@@ -71,7 +71,6 @@ little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][pay
 | 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（2）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
 | 同 id 取代 | 同一個 session id 再次註冊時，新的取代舊的並承接既有連線（Flutter 重建子樹時會短暫出現兩次）；舊的稍後 dispose 不影響新的。 |
 | 關閉 WebSocket 壓縮 | dart:io 的 WebSocket 預設會與瀏覽器協商 permessage-deflate，每幀數 MB 的原始像素都被 zlib 壓一次；host 以 `CompressionOptions.compressionOff` 關掉。macOS 實測 `send` 階段每幀 7.8ms → 1.5ms，幀率 42 → 55 fps（小元素）、26 → 48.5 fps（大元素）。 |
-| 擷取流水線 | 最多 `aqutterNativeMaxConcurrentCaptures`（2）個擷取同時進行，讓像素讀回與下一幀的準備重疊；送出順序仍依擷取開始順序。慢 GPU 上讀回耗時（Android 模擬器 13–25ms）才有差別。 |
 | 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
 | 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；被取代的幀立刻回 `ack`。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
@@ -105,7 +104,7 @@ little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)][pay
 | macOS，關壓縮後 | 727×480 | 5.3MB | 48.5 | 約 58 |
 | Android 模擬器 | 356×280 | 2.6MB | 10 | 10 |
 
-macOS 的測試驅動每個 animation frame（約 60Hz）才改一次內容，所以約 60 fps 是這個測試的上限，不是管線的上限（單幀處理約 8–12ms）。流水線與預設 60 fps 在螢幕鎖定時無法在 macOS 上量測，未有數據。
+macOS 的測試驅動每個 animation frame（約 60Hz）才改一次內容，所以約 60 fps 是這個測試的上限，不是管線的上限（單幀處理約 8–12ms）。曾試過讓兩個擷取重疊（流水線），macOS 上沒有可量到的差別（小元素 56.7、大元素 46.2 fps），因此沒有保留。
 
 ## 現況與限制
 

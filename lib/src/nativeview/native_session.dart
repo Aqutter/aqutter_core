@@ -5,9 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'native_frame.dart';
 import 'native_stats.dart';
 
-/// 同時進行中的擷取上限（流水線深度）。
-const int aqutterNativeMaxConcurrentCaptures = 2;
-
 /// 擷取一幀；回 null 表示這一輪沒有可送的畫面（尚未繪製、擷取失敗等）。
 typedef AqutterNativeFrameCapture = Future<AqutterNativeFrame?> Function();
 
@@ -54,11 +51,7 @@ class AqutterNativeSession {
   /// 網頁端最近回報的顯示尺寸；尚未回報為 null。
   AqutterNativeViewport? viewport;
   Timer? _timer;
-  /// 同時進行中的擷取數；允許少量重疊（流水線），讓「讀回像素」與下一幀的準備可以並行。
-  int _capturesInProgress = 0;
-
-  /// 最近開始的擷取；用來讓送出順序與擷取開始順序一致。
-  _CaptureSlot? _lastSlot;
+  bool _capturing = false;
 
   /// 最近一次擷取耗時（毫秒，指數平滑）；供除錯 / 效能觀察。
   double captureMs = 0;
@@ -126,23 +119,14 @@ class AqutterNativeSession {
 
   Future<void> _tick() async {
     // 沒人看、或所有連線都來不及處理（未確認的幀太多）時不擷取：多送只會在對方堆積
-    if (_capturesInProgress >= aqutterNativeMaxConcurrentCaptures || _clients == 0 || !(_canSend?.call() ?? true)) {
+    if (_capturing || _clients == 0 || !(_canSend?.call() ?? true)) {
       return;
     }
-    _capturesInProgress += 1;
+    _capturing = true;
     final stopwatch = Stopwatch()..start();
-    final started = capture();
-    final previous = _lastSlot;
-    final slot = _CaptureSlot();
-    _lastSlot = slot;
     try {
-      final frame = await started;
+      final frame = await capture();
       stopwatch.stop();
-      // 前一個擷取還沒送出時才等它：不論哪個擷取先完成，都依開始順序送出，避免新幀被舊幀蓋掉。
-      // 前一個已經結束就不 await（多一次事件迴圈輪轉會平白增加延遲）。
-      if (previous != null && !previous.complete) {
-        await previous.completer.future;
-      }
       if (frame == null) {
         return;
       }
@@ -162,9 +146,7 @@ class AqutterNativeSession {
       debugPrint('[aqutter-native:$id] capture failed: $error');
     }
     finally {
-      _capturesInProgress -= 1;
-      slot.complete = true;
-      slot.completer.complete();
+      _capturing = false;
     }
   }
 
@@ -177,10 +159,4 @@ class AqutterNativeSession {
     _send = null;
     _canSend = null;
   }
-}
-
-/// 一個進行中的擷取；[complete] 為 true 代表它已送出（或放棄）。
-class _CaptureSlot {
-  bool complete = false;
-  final Completer<void> completer = Completer<void>();
 }

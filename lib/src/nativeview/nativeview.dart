@@ -4,6 +4,6 @@ library;
 
 export 'native_frame.dart' show AqutterNativeFormat, AqutterNativeFrame, AqutterNativeMessage, AqutterNativeViewport, aqutterNativeHeaderLength, encodeAqutterNativeFrame;
 export 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart' show AqutterNativeEndpoint, AqutterNativeHost, aqutterNativeMaxInFlight;
-export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessageHandler, AqutterNativeSession, aqutterNativeMaxConcurrentCaptures;
+export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessageHandler, AqutterNativeSession;
 export 'native_widget.dart' show AqutterNative;
 export 'native_capture.dart' show AqutterNativeCapture;
