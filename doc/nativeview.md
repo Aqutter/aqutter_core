@@ -13,7 +13,7 @@ Flutter：[被鏡像的內容]──擷取──▶ AqutterNativeSession ──�
 ```dart
 AqutterNative(
   sessionId: 'map',
-  fps: 30,
+  nativeCapture: true, // 原生 view（地圖等）；Flutter 自己畫的內容不需要
   onMessage: (message) {
     if (message.type == 'pan') { /* 套用到內容 */ }
   },
@@ -83,8 +83,8 @@ AqutterNative(
 | 流量控制 | 每個連線最多 `aqutterNativeMaxInFlight`（3）幀未被確認；超過就不再送給該連線，所有連線都滿時連擷取都停。網頁慢或分頁不可見（`requestAnimationFrame` 暫停）時不會在記憶體堆積。 |
 | 同 id 取代 | 同一個 session id 再次註冊時，新的取代舊的並承接既有連線（Flutter 重建子樹時會短暫出現兩次）；舊的稍後 dispose 不影響新的。 |
 | 關閉 WebSocket 壓縮 | dart:io 的 WebSocket 預設會與瀏覽器協商 permessage-deflate，每幀數 MB 的原始像素都被 zlib 壓一次；host 以 `CompressionOptions.compressionOff` 關掉。macOS 實測 `send` 階段每幀 7.8ms → 1.5ms，幀率 42 → 55 fps（小元素）、26 → 48.5 fps（大元素）。 |
-| 重繪事件驅動的擷取迴圈 | 內容重繪時（`AqutterNative` 內的 `RepaintBoundary`）喚醒擷取迴圈，擷取以目標幀率為上限；閒置時只留低頻逾時（補定格幀等計時事件用），幾乎不耗 CPU。不用固定週期的輪詢：輪詢頻率若接近內容的重繪頻率（都是 60Hz），相位會慢慢漂移，有時兩輪撞同一幀、有時整個週期沒被碰到，實測漏掉一成到四成的幀。沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）以 `eventDriven: false` 兩倍目標幀率輪詢。 |
-| 自適應解析度 | `adaptive: AqutterNativeAdaptive.resolution`（預設關閉）：連續幾幀擷取超過每幀預算才降低解析度倍率（有下限 `minScale`，預設 0.5）、連續很多幀都很快才升回；內容停止變動 `settleDelay`（250ms）後補一幀完整解析度的定格幀，靜止畫面維持清晰。 |
+| 重繪事件驅動的擷取迴圈 | 內容重繪時（`AqutterNative` 內的 `RepaintBoundary`）喚醒擷取迴圈，擷取預設不限制頻率（可用選填的 `maxFps` 當硬上限），由重繪速度與擷取耗時決定；閒置時只留低頻逾時（補定格幀等計時事件用），幾乎不耗 CPU。不用固定週期的輪詢：輪詢頻率若接近內容的重繪頻率（都是 60Hz），相位會慢慢漂移，有時兩輪撞同一幀、有時整個週期沒被碰到，實測漏掉一成到四成的幀。沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）以 `eventDriven: false` 兩倍目標幀率輪詢。 |
+| 解析度政策 | `quality: AqutterNativeQuality`：`smooth`（移動中固定在 `minScale`，預設 0.5）、`sharp`（一律基準解析度）、`auto`（依擷取耗時在 `minScale` 與 1.0 之間自適應，每幀預算 `autoBudget`，預設 30 ms，連續幾幀超過才降、連續很多幀都很快才升）。沒指定時，原生擷取（地圖等）用 `smooth`，Flutter 自己畫的內容用 `auto`。內容停止變動 `settleDelay`（250ms）後補一幀完整解析度的定格幀，靜止畫面維持清晰。 |
 | 長寬比對齊 | `matchViewportAspect: true`（預設關閉）：子畫面在可用空間內置中，長寬比改成與網頁元素一致。全螢幕的 widget 鏡像到小方框時，不開會多擷取被 `fit` 裁掉的部分、幀也較大；開了之後每個像素都對應網頁上看得到的內容。網頁回報尺寸前維持填滿。 |
 | 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
@@ -393,3 +393,14 @@ Flutter 自己畫的全螢幕動畫（`toImage` 路徑），每個設定 2 回�
 - 上限沒有綁住：兩台送出的幀數都不隨 `fps` 變（iPad 固定 60 次每秒，等於這個動畫的重繪速率；Android 約 30 次每秒）。沒有量到「沒有上限就失控」；iPad 的重繪只有 60 次每秒，我沒有在 120 Hz 的重繪下測。
 - 有影響的是自適應預算（`1000 / fps × 0.9` ms）：iPad 設 240 時預算很緊（約 3.8 ms），解析度被壓低，每幀從 10.9 MB 降到 3.8 MB，反而穩穩跑到 60 fps、p95 17 ms；設 60 時維持全解析度，但前一回合只有 39 fps。Android 本來就在解析度下限，兩者幀大小相同。
 - 沒有量 CPU 與耗電；每格只有 2 回合，iPad 的 60 設定第一回合偏低可能是暖機。
+
+### 解析度政策取代 `fps` 與 `adaptive`
+
+`AqutterNative` 原本的 `fps`（目標幀率）與 `adaptive`（自適應開關）已移除，改成：
+
+- `quality`：`smooth`／`sharp`／`auto`（見上表）。原因是 `fps` 在量測裡從來沒有綁住過擷取頻率（地圖的擷取要 40 ms 以上），它真正的作用是間接決定自適應的時間預算（`1000 / fps × 0.9` ms），也就是解析度，這個關係藏得太深；把解析度的決定改成明確的政策。
+- `maxFps`：選填的擷取頻率硬上限，預設不限制；沒設時 `AqutterNativeSession` 以固定 16 ms 輪詢（沒有重繪事件的來源）。
+- `autoBudget`：`auto` 政策的每幀預算，預設 30 ms（等於原本地圖外掛 `fps` 30 的預算）。
+- `minScale` 仍是解析度倍率下限（線性，預設 0.5）：`smooth` 的固定倍率、`auto` 的下限。
+
+上面「`fps` 設得很大（240）對照 60」那一節是在這個改動之前用舊參數量的，保留當作紀錄。

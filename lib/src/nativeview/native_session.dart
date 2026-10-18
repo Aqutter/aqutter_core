@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -18,14 +19,17 @@ typedef AqutterNativeMessageHandler = void Function(AqutterNativeMessage message
 ///
 /// 由 `AqutterNativeHost` 依 [id] 對應網頁端的連線。擷取迴圈只在有網頁連線時才跑——
 /// 沒人看的畫面不該耗 CPU。
+/// 輪詢間隔（微秒）：沒有設 `maxFps` 時用這個（約 60 Hz）；擷取本身通常要 40 ms 以上，輪詢不是瓶頸。
+const int _pollMicros = 16000;
+
 class AqutterNativeSession {
   AqutterNativeSession({
     required this.id,
     required this.capture,
     this.onMessage,
-    this.fps = 60,
+    this.maxFps,
     this.eventDriven = false,
-  }) : assert(fps > 0 && fps <= 120, 'fps must be within 1..120');
+  }) : assert(maxFps == null || maxFps > 0, 'maxFps must be positive');
 
   /// 與網頁端 `<aqutter-native session="…">` 一致的識別字。
   final String id;
@@ -33,13 +37,13 @@ class AqutterNativeSession {
   final AqutterNativeFrameCapture capture;
   final AqutterNativeMessageHandler? onMessage;
 
-  /// 目標幀率（擷取較慢時實際會更低，不會堆積）。預設 60。
-  final int fps;
+  /// 選填的擷取頻率硬上限（每秒幾幀）；`null`（預設）不限制，實際頻率由擷取耗時、重繪速度與在途幀數決定。
+  final int? maxFps;
 
   /// 擷取來源會在內容改變時呼叫 [wake]（例如 `AqutterNative` 的重繪事件）。
   ///
   /// true：擷取由事件觸發，閒置時不輪詢（只留低頻逾時），事件一到立刻擷取；
-  /// false（預設）：以兩倍目標幀率輪詢，適用沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）。
+  /// false（預設）：以固定間隔（16 ms，若設了 [maxFps] 則取較短的）輪詢，適用沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）。
   final bool eventDriven;
 
   /// 送出一個二進位幀給所有連線；由 host 掛上。
@@ -160,8 +164,9 @@ class AqutterNativeSession {
   /// - 否則以兩倍目標幀率輪詢（絕對時間表，計時器的超時誤差不會累積；落後就不等，也不補跑落下的幀）。
   /// - 擷取一律以目標幀率為上限（見 [_tick]）。
   Future<void> _run() async {
-    final minGapMicros = (1000000 / fps * 0.9).round();
-    final poll = Duration(microseconds: 1000000 ~/ (fps * 2));
+    final cap = maxFps;
+    final minGapMicros = cap == null ? 0 : (1000000 / cap * 0.9).round();
+    final poll = Duration(microseconds: cap == null ? _pollMicros : math.min(_pollMicros, 1000000 ~/ (cap * 2)));
     final clock = Stopwatch()..start();
     var deadline = Duration.zero;
     while (_visibleClients > 0 && !_disposed) {
@@ -223,8 +228,9 @@ class AqutterNativeSession {
       };
 
   Future<void> _tick() async {
-    // 擷取不超過目標幀率：距離上一幀太近就等下一輪輪詢（輪詢頻率是目標幀率的兩倍）
-    if (_lastFrameStartMicros >= 0 && _clock.elapsedMicroseconds - _lastFrameStartMicros < 1000000 / fps * 0.9) {
+    // 設了 [maxFps] 才限制頻率：距離上一幀太近就等下一輪輪詢
+    final cap = maxFps;
+    if (cap != null && _lastFrameStartMicros >= 0 && _clock.elapsedMicroseconds - _lastFrameStartMicros < 1000000 / cap * 0.9) {
       return;
     }
     final attemptStartMicros = _clock.elapsedMicroseconds;

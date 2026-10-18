@@ -45,7 +45,7 @@ void main() {
       final messages = Completer<AqutterNativeMessage>();
       final session = AqutterNativeSession(
         id: 'demo',
-        fps: 60,
+        maxFps: 60,
         onMessage: messages.complete,
         capture: () async => AqutterNativeFrame(
           width: 1,
@@ -75,7 +75,7 @@ void main() {
       var captures = 0;
       final session = AqutterNativeSession(
         id: 'idle',
-        fps: 60,
+        maxFps: 60,
         capture: () async {
           captures += 1;
           return null;
@@ -90,7 +90,7 @@ void main() {
     test('restart rebinds with a new endpoint, closes old clients and keeps the sessions streaming', () async {
       final session = AqutterNativeSession(
         id: 'resume',
-        fps: 60,
+        maxFps: 60,
         capture: () async => AqutterNativeFrame(
           width: 1,
           height: 1,
@@ -119,7 +119,7 @@ void main() {
     test('a per-session maxInFlight (set by the page via a config message) limits unacknowledged frames', () async {
       final session = AqutterNativeSession(
         id: 'inflight',
-        fps: 120,
+        maxFps: 120,
         capture: () async => AqutterNativeFrame(
           width: 1,
           height: 1,
@@ -173,7 +173,7 @@ void main() {
     test('a session registered with the same id replaces the old one and keeps its clients', () async {
       var oldCaptures = 0;
       var newCaptures = 0;
-      final oldSession = AqutterNativeSession(id: 'swap', fps: 120, capture: () async {
+      final oldSession = AqutterNativeSession(id: 'swap', maxFps: 120, capture: () async {
         oldCaptures += 1;
         return null;
       });
@@ -185,7 +185,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
       expect(oldCaptures, greaterThan(0));
 
-      host.register(AqutterNativeSession(id: 'swap', fps: 120, capture: () async {
+      host.register(AqutterNativeSession(id: 'swap', maxFps: 120, capture: () async {
         newCaptures += 1;
         return null;
       }));
@@ -202,7 +202,7 @@ void main() {
       var captures = 0;
       final session = AqutterNativeSession(
         id: 'pressure',
-        fps: 120,
+        maxFps: 120,
         capture: () async {
           captures += 1;
           return AqutterNativeFrame(width: 1, height: 1, format: AqutterNativeFormat.rgba, payload: Uint8List(4));
@@ -232,7 +232,7 @@ void main() {
       var captures = 0;
       final session = AqutterNativeSession(
         id: 'visible',
-        fps: 120,
+        maxFps: 120,
         capture: () async {
           captures += 1;
           return null;
@@ -263,7 +263,7 @@ void main() {
       final seqs = <int>[];
       host.register(AqutterNativeSession(
         id: 'seq',
-        fps: 60,
+        maxFps: 60,
         capture: () async => AqutterNativeFrame(width: 1, height: 1, format: AqutterNativeFormat.rgba, payload: Uint8List(4)),
       ));
       final endpoint = await host.ensureStarted();

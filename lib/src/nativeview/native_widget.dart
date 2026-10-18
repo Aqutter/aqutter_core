@@ -27,12 +27,13 @@ class AqutterNative extends StatefulWidget {
     required this.sessionId,
     required this.child,
     this.onMessage,
-    this.fps = 60,
+    this.maxFps,
     this.pixelRatio = 1.5,
     this.maxPixelRatio = 3.0,
     this.skipUnchanged = true,
-    this.adaptive = AqutterNativeAdaptive.off,
+    this.quality,
     this.minScale = 0.5,
+    this.autoBudget = const Duration(milliseconds: 30),
     this.settleDelay = const Duration(milliseconds: 250),
     this.nativeCapture = false,
     this.nativeJpegQuality,
@@ -50,24 +51,32 @@ class AqutterNative extends StatefulWidget {
   final String sessionId;
   final Widget child;
   final AqutterNativeMessageHandler? onMessage;
-  final int fps;
+  /// 選填的擷取頻率硬上限（每秒幾幀）；`null`（預設）不限制。
+  ///
+  /// 預設不設：實際頻率由擷取耗時（原生擷取約 40 ms 以上）、內容重繪速度與在途幀數決定，這個上限在量測中從來沒有綁住過。
+  /// 只在內容重繪特別快（例如 120 Hz 的動畫）、想省 CPU 與耗電時才需要。
+  final int? maxFps;
 
   /// 網頁尚未回報顯示尺寸前使用的擷取倍率（logical → pixel）。
   ///
   /// 網頁回報顯示尺寸後（`<aqutter-native>` 會自動回報），改依「網頁實際需要多少像素」擷取，
-  /// 不再使用本值；調低換 fps、調高換畫質只在回報前有效。
+  /// 不再使用本值。
   final double pixelRatio;
 
   /// 依網頁尺寸擷取時的倍率上限，避免高密度螢幕上把畫面擷取得比原生內容還細。
   final double maxPixelRatio;
 
-  /// 擷取跟不上目標幀率時的處理方式，見 [AqutterNativeAdaptive]。預設關閉。
-  final AqutterNativeAdaptive adaptive;
+  /// 移動中的解析度政策，見 [AqutterNativeQuality]。`null`（預設）依擷取路徑：原生擷取（地圖等）用 `smooth`，
+  /// Flutter 自己畫的內容用 `auto`。
+  final AqutterNativeQuality? quality;
 
-  /// [AqutterNativeAdaptive.resolution] 的解析度倍率下限（線性）。
+  /// 解析度倍率下限（線性，相對於基準解析度）：`smooth` 的固定倍率、`auto` 的下限。預設 0.5。
   final double minScale;
 
-  /// 內容停止變動多久後補一幀完整解析度的定格幀（僅在目前解析度低於完整時）。
+  /// `auto` 政策下每幀的時間預算：擷取耗時連續超過它就降解析度，連續很快才升回來。預設 30 ms。
+  final Duration autoBudget;
+
+  /// 內容停止變動多久後補一幀完整解析度的定格幀（僅在移動中的解析度低於完整時）。
   final Duration settleDelay;
 
   /// 內容沒有重繪時跳過擷取（閒置時不耗 CPU 與頻寬）。
@@ -125,7 +134,7 @@ class AqutterNative extends StatefulWidget {
   /// `RepaintBoundary.toImage` 抓不到 Texture 與 PlatformView 的內容（Android 上的地圖就是透明的）；
   /// 這類內容若有自己的快照 API（例如 `GoogleMapController.takeSnapshot`），用這個參數把快照包成幀回傳。
   /// 使用後 [skipUnchanged]、[adaptive]、[pixelRatio] 都不再作用（畫面來源完全由呼叫端決定），
-  /// 擷取迴圈改成依 [fps] 輪詢；回傳 null 代表這一輪沒有新畫面。
+  /// 擷取迴圈改成固定間隔輪詢；回傳 null 代表這一輪沒有新畫面。
   final AqutterNativeFrameCapture? captureOverride;
 
   @override
@@ -145,7 +154,7 @@ class _AqutterNativeState extends State<AqutterNative> {
   bool _settled = true;
 
   /// 原生擷取連續「畫面沒變」的次數。原生擷取（drawHierarchy）在主執行緒做，一次要幾十毫秒，
-  /// 靜止的地圖也每 1/fps 秒擷取一次會把主執行緒吃滿，連觸控都被拖慢（實機量到輸入延遲達數秒）。
+  /// 靜止的地圖也每個輪詢間隔（約 16 ms）擷取一次會把主執行緒吃滿，連觸控都被拖慢（實機量到輸入延遲達數秒）。
   int _unchangedStreak = 0;
   int _backoffTick = 0;
   int _compareTick = 0;
@@ -199,10 +208,10 @@ class _AqutterNativeState extends State<AqutterNative> {
   void didUpdateWidget(AqutterNative oldWidget) {
     super.didUpdateWidget(oldWidget);
     final changed = oldWidget.sessionId != widget.sessionId
-        || oldWidget.fps != widget.fps
+        || oldWidget.maxFps != widget.maxFps
         || oldWidget.pixelRatio != widget.pixelRatio
         || oldWidget.nativeCapture != widget.nativeCapture
-        || oldWidget.adaptive != widget.adaptive
+        || oldWidget.quality != widget.quality
         || oldWidget.minScale != widget.minScale
         || oldWidget.matchViewportAspect != widget.matchViewportAspect
         || oldWidget.captureOverride != widget.captureOverride;
@@ -221,7 +230,7 @@ class _AqutterNativeState extends State<AqutterNative> {
     _scaler = AqutterNativeScaler(minScale: widget.minScale);
     final session = AqutterNativeSession(
       id: widget.sessionId,
-      fps: widget.fps,
+      maxFps: widget.maxFps,
       // 以 RepaintBoundary 擷取時，內容重繪會喚醒擷取迴圈；PlatformView 的原生擷取沒有變動通知，需要輪詢
       eventDriven: widget.captureOverride == null && !(widget.nativeCapture && AqutterNativeCapture.isSupported),
       capture: widget.captureOverride ?? _capture,
@@ -275,9 +284,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     final origin = box.localToGlobal(Offset.zero);
     final rect = origin & box.size;
     final base = _pixelRatioFor(box.size, session.viewport);
-    final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     // 定格後（_settled）以完整解析度比對；動起來的第一張也是完整解析度，之後才降
-    final full = !adaptive || _settled || _scaler.scale >= 1.0;
+    final full = _settled || _movingScale >= 1.0;
     if (!forced && _unchangedStreak >= _backoffAfter) {
       _backoffTick = (_backoffTick + 1) % _backoffEvery;
       if (_backoffTick != 0) {
@@ -291,7 +299,7 @@ class _AqutterNativeState extends State<AqutterNative> {
     var frame = await AqutterNativeCapture.capture(
       rect,
       viewTypeContains: widget.nativeViewTypeContains,
-      pixelRatio: full ? base : base * _scaler.scale,
+      pixelRatio: full ? base : base * _movingScale,
       // 網頁剛連上、重新看得到、尺寸變了（forced）時，一定要送一張，否則靜止的畫面永遠到不了網頁
       // 比對要掃過整張像素（Android 平板約 10 到 15 ms）：連續在動時每 4 幀才比一次，確認靜止後才每幀比
       skipUnchanged: !forced && (_unchangedStreak > 0 || _compareTick++ % 4 == 0),
@@ -316,7 +324,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       _unchangedStreak += 1;
       _nativeUnchanged += 1;
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
-      if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
+      if (!_settled && _movingScale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
         frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: _settleJpegQuality);
       }
@@ -329,9 +337,9 @@ class _AqutterNativeState extends State<AqutterNative> {
       ..reset()
       ..start();
     _settled = false;
-    session.stats.scale = _scaler.scale;
-    if (adaptive) {
-      _scaler.record(watch.elapsedMicroseconds / 1000, 1000 / widget.fps * 0.9);
+    session.stats.scale = _movingScale;
+    if (_policy == AqutterNativeQuality.auto) {
+      _scaler.record(watch.elapsedMicroseconds / 1000, _autoBudgetMs);
     }
     _publishNativeDebug(session);
     return frame;
@@ -352,6 +360,19 @@ class _AqutterNativeState extends State<AqutterNative> {
     return quality != null && quality > 0 ? quality : null;
   }
 
+  /// 目前生效的政策：沒指定時，原生擷取用 [AqutterNativeQuality.smooth]，Flutter 路徑用 [AqutterNativeQuality.auto]。
+  AqutterNativeQuality get _policy =>
+      widget.quality ?? (widget.nativeCapture && AqutterNativeCapture.isSupported ? AqutterNativeQuality.smooth : AqutterNativeQuality.auto);
+
+  /// 移動中的解析度倍率（相對於基準解析度）。
+  double get _movingScale => switch (_policy) {
+        AqutterNativeQuality.sharp => 1.0,
+        AqutterNativeQuality.smooth => widget.minScale,
+        AqutterNativeQuality.auto => _scaler.scale,
+      };
+
+  double get _autoBudgetMs => widget.autoBudget.inMicroseconds / 1000;
+
   /// 目前的傳輸模式（顯示用）：移動中的格式、定格幀格式、解析度下限、主執行緒占用上限。
   Map<String, Object?> get _modeDescription {
     String format(double? quality) => quality == null ? 'RGBA' : 'JPEG ${quality.toStringAsFixed(2)}';
@@ -360,7 +381,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       'compress': format(_movingJpegQuality),
       'settle': format(_settleJpegQuality),
       'minScale': widget.minScale,
-      'fps': widget.fps,
+      'quality': _policy.name,
+      'movingScale': _movingScale,
       'duty': duty >= 1 ? '無' : duty.toStringAsFixed(2),
     };
   }
@@ -373,7 +395,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       ..['nativeBackoff'] = _nativeBackoff
       ..['streak'] = _unchangedStreak
       ..['settled'] = _settled
-      ..['scale'] = _scaler.scale
+      ..['scale'] = _movingScale
       ..['nativeTimingMs'] = AqutterNativeCapture.lastTimings;
   }
 
@@ -394,11 +416,10 @@ class _AqutterNativeState extends State<AqutterNative> {
     final paintCount = box.paintCount;
     session.stats.paintCount(paintCount);
     final changed = paintCount != _lastPaintCount;
-    final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     var settleFrame = false;
     if (widget.skipUnchanged && !forced && !changed) {
       // 內容停了：解析度被降過就補一幀完整解析度的定格幀，靜止的畫面才會清楚
-      final needsSettle = adaptive && _scaler.scale < 1.0 && !_settled && _sinceChange.elapsed >= widget.settleDelay;
+      final needsSettle = _movingScale < 1.0 && !_settled && _sinceChange.elapsed >= widget.settleDelay;
       if (!needsSettle) {
         session.stats.unchanged();
         return null;
@@ -415,8 +436,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     if (settleFrame) {
       _settled = true;
     }
-    final scale = adaptive && !settleFrame ? _scaler.scale : 1.0;
-    session.stats.scale = _scaler.scale;
+    final scale = settleFrame ? 1.0 : _movingScale;
+    session.stats.scale = _movingScale;
     final totalWatch = Stopwatch()..start();
 
     final imageWatch = Stopwatch()..start();
@@ -429,8 +450,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       if (data == null) {
         return null;
       }
-      if (adaptive && !settleFrame && changed) {
-        _scaler.record(totalWatch.elapsedMicroseconds / 1000, 1000 / widget.fps * 0.9);
+      if (_policy == AqutterNativeQuality.auto && !settleFrame && changed) {
+        _scaler.record(totalWatch.elapsedMicroseconds / 1000, _autoBudgetMs);
       }
       return AqutterNativeFrame(
         width: image.width,

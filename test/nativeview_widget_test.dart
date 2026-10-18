@@ -69,13 +69,13 @@ void main() {
       );
 
   testWidgets('static content is captured once, not on every tick', (tester) async {
-    await tester.pumpWidget(host(const AqutterNative(sessionId: 'static', fps: 60, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'static', maxFps: 60, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
     final result = await _measure(tester, 'static', const Duration(milliseconds: 600));
     expect(result.frames, inInclusiveRange(1, 2));
   });
 
   testWidgets('skipUnchanged: false keeps streaming the same picture (baseline)', (tester) async {
-    await tester.pumpWidget(host(const AqutterNative(sessionId: 'baseline', fps: 60, skipUnchanged: false, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'baseline', maxFps: 60, skipUnchanged: false, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
     final result = await _measure(tester, 'baseline', const Duration(milliseconds: 600));
     expect(result.frames, greaterThan(5));
   });
@@ -83,20 +83,48 @@ void main() {
   testWidgets('changing content keeps streaming', (tester) async {
     final counter = ValueNotifier<int>(0);
     addTearDown(counter.dispose);
-    await tester.pumpWidget(host(AqutterNative(sessionId: 'moving', fps: 60, child: _Painter(counter))));
+    await tester.pumpWidget(host(AqutterNative(sessionId: 'moving', maxFps: 60, child: _Painter(counter))));
     final result = await _measure(tester, 'moving', const Duration(milliseconds: 600), animate: counter);
     expect(result.frames, greaterThan(5));
   });
 
+  const resize200 = {'width': 200, 'height': 100, 'dpr': 1}; // 網頁顯示 200x100、dpr 1 → 基準解析度剛好是 200 像素寬
+
+  testWidgets('quality smooth captures moving frames at minScale and settles to full resolution', (tester) async {
+    final counter = ValueNotifier<int>(0);
+    addTearDown(counter.dispose);
+    await tester.pumpWidget(host(AqutterNative(sessionId: 'smooth', quality: AqutterNativeQuality.smooth, child: _Painter(counter))));
+    final moving = await _measure(tester, 'smooth', const Duration(milliseconds: 500), resize: resize200, animate: counter);
+    expect(moving.width, 100); // 預設 minScale 0.5：200 的一半
+    final settled = await _measure(tester, 'smooth', const Duration(milliseconds: 900), resize: resize200);
+    expect(settled.width, 200); // 內容停了：補完整解析度的定格幀
+  });
+
+  testWidgets('quality sharp always captures at full resolution', (tester) async {
+    final counter = ValueNotifier<int>(0);
+    addTearDown(counter.dispose);
+    await tester.pumpWidget(host(AqutterNative(sessionId: 'sharp', quality: AqutterNativeQuality.sharp, child: _Painter(counter))));
+    final moving = await _measure(tester, 'sharp', const Duration(milliseconds: 500), resize: resize200, animate: counter);
+    expect(moving.width, 200);
+  });
+
+  testWidgets('the default quality on the Flutter path is auto: fast captures stay at full resolution', (tester) async {
+    final counter = ValueNotifier<int>(0);
+    addTearDown(counter.dispose);
+    await tester.pumpWidget(host(AqutterNative(sessionId: 'auto', child: _Painter(counter))));
+    final moving = await _measure(tester, 'auto', const Duration(milliseconds: 500), resize: resize200, animate: counter);
+    expect(moving.width, 200);
+  });
+
   testWidgets('captures at the resolution the web reported', (tester) async {
-    await tester.pumpWidget(host(const AqutterNative(sessionId: 'sized', fps: 60, pixelRatio: 3, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'sized', maxFps: 60, pixelRatio: 3, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
     // 元件 200x100 logical；網頁顯示 100x50 CSS px、dpr 2 → 只需要 200x100 像素（倍率 1），不是 pixelRatio 3 的 600 寬
     final result = await _measure(tester, 'sized', const Duration(milliseconds: 600), resize: {'width': 100, 'height': 50, 'dpr': 2});
     expect(result.width, 200);
   });
 
   testWidgets('matchViewportAspect lays the child out with the web element aspect', (tester) async {
-    await tester.pumpWidget(host(const AqutterNative(sessionId: 'aspect', fps: 60, matchViewportAspect: true, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
+    await tester.pumpWidget(host(const AqutterNative(sessionId: 'aspect', maxFps: 60, matchViewportAspect: true, child: ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()))));
     // 元件 200x100；網頁元素 1:1（100x100、dpr 1）→ 子畫面縮成 100x100，剛好 1:1 擷取成 100 像素寬
     final tick = ValueNotifier<int>(0); // 只用來讓測試每 16ms pump 一次，好讓回報尺寸後的重新排版發生
     addTearDown(tick.dispose);
@@ -113,7 +141,7 @@ void main() {
 
     await tester.pumpWidget(host(AqutterNative(
       sessionId: 'override',
-      fps: 60,
+      maxFps: 60,
       captureOverride: snapshot,
       child: const ColoredBox(color: Color(0xFF3366FF), child: SizedBox.expand()),
     )));
