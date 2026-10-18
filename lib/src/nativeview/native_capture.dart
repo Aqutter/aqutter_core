@@ -28,8 +28,9 @@ class AqutterNativeCapture {
   /// （不含疊在其上的網頁覆蓋層，也免裁切）；否則擷取整個 window 再裁切到 [rect]。
   /// 回 null 代表這一輪擷取不到。
   ///
-  /// [pixelRatio]（每個 logical 像素要幾個像素）給了就縮到那個解析度、不放大；Android 使用，iOS 固定取最多 2 倍。
-  static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains, double? pixelRatio}) async {
+  /// [pixelRatio]（每個 logical 像素要幾個像素）給了就縮到那個解析度、不放大；iOS 最多 2 倍。
+  /// [skipUnchanged]（目前只有 iOS 實作）：畫面與上一張完全相同時回 null，省下傳輸與網頁端解碼；回 null 也可能是這一輪擷取不到。
+  static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains, double? pixelRatio, bool skipUnchanged = false}) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('capture', {
       'x': rect.left,
       'y': rect.top,
@@ -37,8 +38,9 @@ class AqutterNativeCapture {
       'h': rect.height,
       'viewTypeContains': ?viewTypeContains,
       'pixelRatio': ?pixelRatio,
+      if (skipUnchanged) 'skipUnchanged': true,
     });
-    if (result == null) {
+    if (result == null || result['unchanged'] == true) {
       return null;
     }
     return AqutterNativeFrame(

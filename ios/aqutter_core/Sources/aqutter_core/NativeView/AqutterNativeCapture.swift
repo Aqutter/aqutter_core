@@ -8,13 +8,17 @@ import UIKit
 /// 回傳 straight RGBA bytes，走與 Flutter 擷取相同的 WebSocket 管線。
 ///
 /// MethodChannel：`com.github.aqutter/nativeview`，method `capture`，
-/// args `{x, y, w, h, viewTypeContains?}`（logical points，Flutter 全域座標），
-/// 回傳 `{width, height, bytes}`。
+/// args `{x, y, w, h, viewTypeContains?, pixelRatio?, skipUnchanged?}`（logical points，Flutter 全域座標），
+/// 回傳 `{width, height, bytes}`；`skipUnchanged` 為 true 且畫面與上一張完全相同時回 `{unchanged: true}`（不回像素）。
 public class AqutterNativeCapture: NSObject {
   public static let channelName = "com.github.aqutter/nativeview"
 
   /// 擷取解析度上限（倍率）；降到 2× 換 fps（螢幕原生可能是 3×）。
   private static let captureScale: CGFloat = 2.0
+
+  /// 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。
+  private var lastBytes: Data?
+  private var lastSize: (Int, Int) = (0, 0)
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
@@ -34,8 +38,10 @@ public class AqutterNativeCapture: NSObject {
       return
     }
     let typeName = args["viewTypeContains"] as? String
+    let pixelRatio = args["pixelRatio"] as? Double
+    let skipUnchanged = args["skipUnchanged"] as? Bool ?? false
     DispatchQueue.main.async {
-      result(self.capture(x: x, y: y, w: w, h: h, viewTypeContains: typeName))
+      result(self.capture(x: x, y: y, w: w, h: h, viewTypeContains: typeName, pixelRatio: pixelRatio, skipUnchanged: skipUnchanged))
     }
   }
 
@@ -46,9 +52,10 @@ public class AqutterNativeCapture: NSObject {
       .first { $0.isKeyWindow }
   }
 
-  private func capture(x: Double, y: Double, w: Double, h: Double, viewTypeContains: String?) -> Any? {
+  private func capture(x: Double, y: Double, w: Double, h: Double, viewTypeContains: String?, pixelRatio: Double?, skipUnchanged: Bool) -> Any? {
     guard let window = keyWindow() else { return nil }
-    let scale = min(AqutterNativeCapture.captureScale, window.screen.scale)
+    // 解析度：呼叫端給了 pixelRatio（網頁實際需要的、或自適應降下來的）就用它，上限仍是 2× 與螢幕倍率
+    let scale = min(CGFloat(pixelRatio ?? Double(AqutterNativeCapture.captureScale)), AqutterNativeCapture.captureScale, window.screen.scale)
     let format = UIGraphicsImageRendererFormat()
     format.scale = scale
     format.opaque = false
@@ -59,6 +66,10 @@ public class AqutterNativeCapture: NSObject {
       let target = firstView(in: window, typeContaining: typeName),
       target.bounds.width >= 1, target.bounds.height >= 1 {
       let bounds = target.bounds
+      // 直接畫進自己的 RGBA 緩衝：省掉「renderer 出 CGImage 再重畫一次」的整張複製
+      if let direct = renderDirect(view: target, bounds: bounds, scale: scale) {
+        return emit(width: direct.width, height: direct.height, data: direct.data, skipUnchanged: skipUnchanged)
+      }
       let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
         target.drawHierarchy(in: bounds, afterScreenUpdates: true)
       }
@@ -75,6 +86,42 @@ public class AqutterNativeCapture: NSObject {
     guard !pixelRect.isNull, pixelRect.width >= 1, pixelRect.height >= 1,
       let cropped = cg.cropping(to: pixelRect) else { return nil }
     return rgba(from: cropped)
+  }
+
+  private func renderDirect(view: UIView, bounds: CGRect, scale: CGFloat) -> (width: Int, height: Int, data: Data)? {
+    let width = Int((bounds.width * scale).rounded())
+    let height = Int((bounds.height * scale).rounded())
+    guard width >= 1, height >= 1 else { return nil }
+    var data = Data(count: width * height * 4)
+    let drawn: Bool = data.withUnsafeMutableBytes { raw in
+      guard let base = raw.baseAddress,
+        let context = CGContext(
+          data: base, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+          space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+      else { return false }
+      // UIKit 座標原點在左上：翻轉後再縮放到目標解析度
+      context.translateBy(x: 0, y: CGFloat(height))
+      context.scaleBy(x: scale, y: -scale)
+      UIGraphicsPushContext(context)
+      let ok = view.drawHierarchy(in: bounds, afterScreenUpdates: true)
+      UIGraphicsPopContext()
+      return ok
+    }
+    return drawn ? (width, height, data) : nil
+  }
+
+  private func emit(width: Int, height: Int, data: Data, skipUnchanged: Bool) -> Any? {
+    if skipUnchanged, let last = lastBytes, lastSize == (width, height), last == data {
+      return ["unchanged": true]
+    }
+    lastBytes = data
+    lastSize = (width, height)
+    return [
+      "width": width,
+      "height": height,
+      "bytes": FlutterStandardTypedData(bytes: data),
+    ]
   }
 
   /// 遞迴找類名含 [typeContaining] 的 view（以類名比對，免 import 該 view 所屬的 SDK）。

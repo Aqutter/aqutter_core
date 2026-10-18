@@ -189,14 +189,45 @@ class _AqutterNativeState extends State<AqutterNative> {
     }
   }
 
+  /// 原生擷取（PlatformView）：與 Flutter 擷取同一套自適應——擷取跟不上就降解析度，畫面停下來（連續兩張相同）
+  /// 補一張完整解析度的定格幀；畫面完全沒變的幀（iOS）不回傳，靜止的地圖不再持續占用傳輸與網頁解碼。
+  Future<AqutterNativeFrame?> _captureNative(_RenderCountingRepaintBoundary box, AqutterNativeSession session, bool forced) async {
+    final origin = box.localToGlobal(Offset.zero);
+    final rect = origin & box.size;
+    final base = _pixelRatioFor(box.size, session.viewport);
+    final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
+    // 定格後（_settled）以完整解析度比對；動起來的第一張也是完整解析度，之後才降
+    final full = !adaptive || _settled || _scaler.scale >= 1.0;
+    final watch = Stopwatch()..start();
+    var frame = await AqutterNativeCapture.capture(
+      rect,
+      viewTypeContains: widget.nativeViewTypeContains,
+      pixelRatio: full ? base : base * _scaler.scale,
+      // 網頁剛連上、重新看得到、尺寸變了（forced）時，一定要送一張，否則靜止的畫面永遠到不了網頁
+      skipUnchanged: !forced,
+    );
+    if (frame == null) {
+      // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
+      if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
+        _settled = true;
+        frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base);
+      }
+      return frame;
+    }
+    _sinceChange
+      ..reset()
+      ..start();
+    _settled = false;
+    session.stats.scale = _scaler.scale;
+    if (adaptive) {
+      _scaler.record(watch.elapsedMicroseconds / 1000, 1000 / widget.fps * 0.9);
+    }
+    return frame;
+  }
+
   Future<AqutterNativeFrame?> _captureFrame(_RenderCountingRepaintBoundary box, AqutterNativeSession session, bool forced) async {
     if (widget.nativeCapture && AqutterNativeCapture.isSupported) {
-      final origin = box.localToGlobal(Offset.zero);
-      return AqutterNativeCapture.capture(
-        origin & box.size,
-        viewTypeContains: widget.nativeViewTypeContains,
-        pixelRatio: _pixelRatioFor(box.size, session.viewport),
-      );
+      return _captureNative(box, session, forced);
     }
     // 開發模式下尚未繪製就 toImage 會觸發斷言；release 沒有這個旗標，故以 kReleaseMode 守住。
     // 內容持續重繪時 debug 版常落在「已標記、尚未繪製」的空檔：直接放棄這一輪會讓 debug 幀率遠低於 release
