@@ -199,6 +199,21 @@ class AqutterNativeSession {
 
   bool get hasClients => _clients > 0;
 
+  /// 擷取來源（widget）可寫入的除錯資訊，隨 [diagnostics] 一起回報。
+  final Map<String, Object?> debug = {};
+
+  /// 目前的內部狀態，除錯用（網頁卡住時看是哪一段停了）。
+  Map<String, Object?> diagnostics() => {
+        'clients': _clients,
+        'visibleClients': _visibleClients,
+        'loopRunning': _loopRunning,
+        'capturing': _capturing,
+        'canSend': _canSend?.call(),
+        'seq': _seq,
+        'dirty': _dirty,
+        ...debug,
+      };
+
   Future<void> _tick() async {
     // 擷取不超過目標幀率：距離上一幀太近就等下一輪輪詢（輪詢頻率是目標幀率的兩倍）
     if (_lastFrameStartMicros >= 0 && _clock.elapsedMicroseconds - _lastFrameStartMicros < 1000000 / fps * 0.9) {

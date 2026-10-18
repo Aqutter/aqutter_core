@@ -27,5 +27,9 @@ class AqutterNativeHost {
 
   bool hasSession(String id) => false;
 
+  Map<String, Object?> diagnostics(String id) => const {};
+
+  Future<void> restart() async {}
+
   Future<void> stop() async {}
 }

@@ -86,6 +86,35 @@ void main() {
       expect(captures, 0);
     });
 
+    test('restart rebinds with a new endpoint, closes old clients and keeps the sessions streaming', () async {
+      final session = AqutterNativeSession(
+        id: 'resume',
+        fps: 60,
+        capture: () async => AqutterNativeFrame(
+          width: 1,
+          height: 1,
+          format: AqutterNativeFormat.rgba,
+          payload: Uint8List.fromList([1, 2, 3, 255]),
+        ),
+      );
+      host.register(session);
+      final before = await host.ensureStarted();
+      final oldSocket = await connect(before, 'resume');
+      final closed = Completer<void>();
+      oldSocket.listen((_) {}, onDone: closed.complete);
+
+      await host.restart();
+      await closed.future.timeout(const Duration(seconds: 2));
+      final after = await host.ensureStarted();
+      expect(after.token, isNot(before.token));
+      expect(host.hasSession('resume'), isTrue);
+
+      final socket = await connect(after, 'resume');
+      addTearDown(() => socket.close());
+      final frame = await socket.take(2).toList();
+      expect(frame[1], [1, 2, 3, 255]);
+    });
+
     test('rejects a wrong token and an unknown session', () async {
       host.register(AqutterNativeSession(id: 'known', capture: () async => null));
       final endpoint = await host.ensureStarted();

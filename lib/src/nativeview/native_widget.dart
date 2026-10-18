@@ -120,6 +120,10 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 靜止的地圖也每 1/fps 秒擷取一次會把主執行緒吃滿，連觸控都被拖慢（實機量到輸入延遲達數秒）。
   int _unchangedStreak = 0;
   int _backoffTick = 0;
+  int _nativeFrames = 0;
+  int _nativeUnchanged = 0;
+  int _nativeBackoff = 0;
+  int _nativeNull = 0;
 
   /// 連續多少次沒變之後開始降頻，以及降頻後每幾次輪詢才真的擷取一次。
   static const int _backoffAfter = 30;
@@ -211,6 +215,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     if (!forced && _unchangedStreak >= _backoffAfter) {
       _backoffTick = (_backoffTick + 1) % _backoffEvery;
       if (_backoffTick != 0) {
+        _nativeBackoff += 1;
+        _publishNativeDebug(session);
         return null;
       }
     }
@@ -224,14 +230,17 @@ class _AqutterNativeState extends State<AqutterNative> {
     );
     if (frame == null) {
       _unchangedStreak += 1;
+      _nativeUnchanged += 1;
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
       if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
         frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base);
       }
+      _publishNativeDebug(session);
       return frame;
     }
     _unchangedStreak = 0;
+    _nativeFrames += 1;
     _sinceChange
       ..reset()
       ..start();
@@ -240,7 +249,19 @@ class _AqutterNativeState extends State<AqutterNative> {
     if (adaptive) {
       _scaler.record(watch.elapsedMicroseconds / 1000, 1000 / widget.fps * 0.9);
     }
+    _publishNativeDebug(session);
     return frame;
+  }
+
+  void _publishNativeDebug(AqutterNativeSession session) {
+    session.debug
+      ..['nativeFrames'] = _nativeFrames
+      ..['nativeUnchanged'] = _nativeUnchanged
+      ..['nativeBackoff'] = _nativeBackoff
+      ..['nativeNull'] = _nativeNull
+      ..['streak'] = _unchangedStreak
+      ..['settled'] = _settled
+      ..['scale'] = _scaler.scale;
   }
 
   Future<AqutterNativeFrame?> _captureFrame(_RenderCountingRepaintBoundary box, AqutterNativeSession session, bool forced) async {

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'native_frame.dart';
 import 'native_session.dart';
@@ -33,7 +34,7 @@ class AqutterNativeEndpoint {
 /// 一幀就回 `{"type":"ack"}`。超過上限時不再送新幀給該連線，所有連線都滿時工作階段也不再擷取。
 /// 網頁回報顯示尺寸的 `{"type":"resize"}`、回報可見性的 `{"type":"visibility","visible":bool}` 由本類別處理，
 /// 不會轉給 `onMessage`；所有連線都回報看不到時，工作階段暫停擷取。
-class AqutterNativeHost {
+class AqutterNativeHost with WidgetsBindingObserver {
   AqutterNativeHost._();
 
   static final AqutterNativeHost instance = AqutterNativeHost._();
@@ -41,6 +42,8 @@ class AqutterNativeHost {
   HttpServer? _server;
   AqutterNativeEndpoint? _endpoint;
   Future<AqutterNativeEndpoint>? _starting;
+  bool _observing = false;
+  bool _wasBackgrounded = false;
 
   final Map<String, AqutterNativeSession> _sessions = {};
   final Map<String, Set<WebSocket>> _clients = {};
@@ -61,6 +64,10 @@ class AqutterNativeHost {
   }
 
   Future<AqutterNativeEndpoint> _start() async {
+    if (!_observing) {
+      _observing = true;
+      WidgetsFlutterBinding.ensureInitialized().addObserver(this);
+    }
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final random = Random.secure();
     final token = base64UrlEncode(List<int>.generate(24, (_) => random.nextInt(256)));
@@ -69,6 +76,42 @@ class AqutterNativeHost {
     server.listen(_onRequest);
     debugPrint('[aqutter-native] ws server on ws://127.0.0.1:${server.port}');
     return _endpoint!;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _wasBackgrounded = true;
+    }
+    else if (state == AppLifecycleState.resumed && _wasBackgrounded) {
+      _wasBackgrounded = false;
+      unawaited(restart());
+    }
+  }
+
+  /// 重啟伺服器（保留所有工作階段）：以新的埠與令牌重新監聽，並關掉全部既有連線讓網頁重連。
+  ///
+  /// 螢幕關掉或 App 進背景後，iOS 會讓背景中的 socket 失效（監聽埠壞掉、網頁的連線變成半開），
+  /// 兩邊都不會得到錯誤——網頁還以為連著，原生端也等不到它的確認，回到前景就一直沒有畫面。
+  /// 網頁每次重連都會重新向 App 要連線資訊，所以換新的埠不影響它。
+  Future<void> restart() async {
+    final server = _server;
+    _server = null;
+    _endpoint = null;
+    _starting = null;
+    await server?.close(force: true);
+    for (final sockets in _clients.values) {
+      for (final socket in sockets) {
+        socket.close(WebSocketStatus.goingAway);
+      }
+    }
+    _clients.clear();
+    _inFlight.clear();
+    _hidden.clear();
+    for (final session in _sessions.values) {
+      session.clientCountChanged(0, visible: 0);
+    }
+    await ensureStarted();
   }
 
   /// 註冊工作階段。同 id 已存在時，新的**取代**舊的並承接既有的網頁連線（連線不中斷）。
@@ -101,6 +144,15 @@ class AqutterNativeHost {
   }
 
   bool hasSession(String id) => _sessions.containsKey(id);
+
+  /// 某個工作階段與其連線的內部狀態（除錯用）。
+  Map<String, Object?> diagnostics(String id) => {
+        'session': _sessions[id]?.diagnostics(),
+        'sockets': [
+          for (final socket in _clients[id] ?? const <WebSocket>{}) {'inFlight': _inFlight[socket] ?? 0, 'hidden': _hidden.contains(socket)},
+        ],
+        'endpointPort': _endpoint?.port,
+      };
 
   bool _canSend(String id) {
     final sockets = _clients[id];
@@ -233,5 +285,9 @@ class AqutterNativeHost {
     _server = null;
     _endpoint = null;
     _starting = null;
+    if (_observing) {
+      _observing = false;
+      WidgetsBinding.instance.removeObserver(this);
+    }
   }
 }
