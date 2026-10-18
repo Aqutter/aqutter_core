@@ -258,7 +258,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 ## 原生擷取的 JPEG 幀與滿版地圖壓力測試
 
-原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`，預設 0.7；`null` 關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀用 `nativeSettleJpegQuality`（預設 0.92，接近無損；`null` 才傳未壓縮的 RGBA，滿版時一張 27 MB 以上，Android 平板實測會讓接著的操作多卡約 0.4 秒）。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
+原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`；`null`（預設）依平台：iOS 0.85、Android 不壓縮；0 以下明確關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀用 `nativeSettleJpegQuality`（預設 0.92，接近無損；`null` 才傳未壓縮的 RGBA，滿版時一張 27 MB 以上，Android 平板實測會讓接著的操作多卡約 0.4 秒）。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
 
 iOS 的原生擷取各階段耗時隨結果回傳（`draw`、`compare`、`encode`，毫秒），可從 plugin 的診斷讀到。iPad 模擬器滿版地圖實測：`drawHierarchy` 約 75 到 85 ms，與解析度幾乎無關（0.25 倍與 0.5 倍一樣），是這條管線的固定成本；比對 0.2 到 0.9 ms，JPEG 編碼 3 到 14 ms。`afterScreenUpdates: false` 只快約一成、幀率沒有改善，沒有採用。模擬器是軟體渲染，實機的數字要另外量。
 
@@ -275,3 +275,14 @@ demo-app 的 `map.html` 是滿版地圖加壓力測試：用合成的指標事�
 移動中的畫質是取捨：Android 平板滿版地圖實測，解析度下限 0.25 倍加 JPEG 0.7 是 14 到 25 fps、每幀 40 到 160 KB，但移動時畫面糊；0.7 倍加 JPEG 0.85 是 8 到 9 fps、每幀 420 到 750 KB，清楚但明顯變慢；現在的預設 0.5 倍加 JPEG 0.85 是 10 到 16 fps、每幀 110 到 460 KB。`AqutterNative.nativeJpegQuality` 與 google-maps 外掛的 `minScale` 可調。連續在動時「畫面沒變」的比對改成每 4 幀做一次（Android 一次約 10 到 15 ms），確認靜止後才每幀比。
 
 iOS 的原生擷取在主執行緒，一次約 40 ms；連續擷取會把主執行緒吃滿，網頁每秒卡約 1 秒、甩動時幀間隔 1.2 秒（iPad 實機）。`nativeMaxDuty`（iOS 預設 0.7）每次擷取後讓出 `耗時 × (1/上限 − 1)`：上限 0.6 時 7 到 10 fps、卡頓約 110 ms；0.8 時 7 到 14 fps，但又偶爾卡約 1 秒；0.7 時 9 到 12 fps。混戰場景仍偶爾出現約 1.1 秒的卡頓，原因未查。
+
+### 各平台的預設與 A/B 對照（實機，滿版地圖，3 輪平均）
+
+JPEG 只在 iOS 預設開啟。對照（`--dart-define=AQUTTER_MAP_BASELINE=true` 會關掉壓縮與占用上限）：
+
+- iPad：改進前 5 到 9 fps、幀間隔 p95 250 到 770 ms、JS 卡頓 400 到 1100 ms、每幀 3.8 到 9.4 MB；現在 9 到 11 fps、p95 150 到 175 ms、卡頓約 100 ms、每幀 0.19 到 0.5 MB。
+- Android 平板：未壓縮 RGBA（現在的預設）13.5 到 17.6 fps、延遲 63 到 74 ms；JPEG 0.85 只有 8.6 到 14 fps（軟體編碼每幀 20 到 30 ms，比傳 7 MB 還慢）。
+
+Flutter 自己畫的內容（`toImage` 路徑，不是原生擷取）快得多：全螢幕、每幀整個畫面都在變的動畫，iPad 實機 56 到 58 fps、延遲 18 到 20 ms（每幀 11 到 12 MB）；Android 平板 23 到 27 fps。所以瓶頸是原生擷取（iOS `drawHierarchy` 約 40 ms），不是 WebSocket 傳輸。
+
+網頁內的 YouTube 影片（IFrame API，1080p）與右下角的鏡像同時跑：Android 平板影片每秒前進 1.0 秒、鏡像約 50 fps；iPad 影片同樣穩定播放，鏡像 60 fps、延遲約 11 ms。iOS 預設需要使用者手勢才播放影片；殼提供 `--dart-define=AQUTTER_MEDIA_AUTOPLAY=true` 供自動化測試放行，預設關閉。

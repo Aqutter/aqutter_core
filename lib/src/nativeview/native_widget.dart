@@ -35,8 +35,8 @@ class AqutterNative extends StatefulWidget {
     this.settleDelay = const Duration(milliseconds: 250),
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
-    this.nativeJpegQuality = 0.85,
-    this.nativeSettleJpegQuality = 0.92,
+    this.nativeJpegQuality,
+    this.nativeSettleJpegQuality,
     this.nativeMaxDuty,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
@@ -78,11 +78,13 @@ class AqutterNative extends StatefulWidget {
   /// 以原生方式擷取（Texture 與 PlatformView 用，如地圖）：iOS 用 `drawHierarchy`，Android 用 `PixelCopy`；其他平台忽略。
   final bool nativeCapture;
 
-  /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null` 一律傳未壓縮的 RGBA。
-  /// 停下來補的定格幀用 [nativeSettleJpegQuality]（預設 0.92，接近無損）。
+  /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null`（預設）依平台決定：iOS 用 0.85、其他平台傳未壓縮的 RGBA；0 以下明確關閉壓縮。
+  /// Android 的 JPEG 是軟體編碼（每幀約 20 到 30 ms），平板實測比傳 7 MB 未壓縮的幀還慢（9 到 14 fps 對 14 到 18 fps），
+  /// 而且未壓縮沒有壓縮痕跡；iOS 的 JPEG 是硬體編碼（約 1 到 6 ms），並讓每幀從數 MB 降到數百 KB，主執行緒才不會被擠爆。
+  /// 停下來補的定格幀用 [nativeSettleJpegQuality]（預設同樣依平台：iOS 0.92，其他平台未壓縮）。
   final double? nativeJpegQuality;
 
-  /// 畫面停下來補的定格幀的 JPEG 品質；`null` 傳未壓縮的 RGBA（無損，但滿版時一張要幾十 MB，傳輸與解碼會卡住接著的操作）。
+  /// 畫面停下來補的定格幀的 JPEG 品質；`null`（預設）依平台決定：iOS 0.92、其他平台傳未壓縮的 RGBA。
   final double? nativeSettleJpegQuality;
 
   /// 原生擷取佔用主執行緒的上限（0 到 1，擷取耗時占的比例）。擷取在主執行緒做（iOS `drawHierarchy` 一次約 40 ms），
@@ -245,7 +247,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 比對要掃過整張像素（Android 平板約 10 到 15 ms）：連續在動時每 4 幀才比一次，確認靜止後才每幀比
       skipUnchanged: !forced && (_unchangedStreak > 0 || _compareTick++ % 4 == 0),
       // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
-      jpegQuality: widget.nativeJpegQuality,
+      jpegQuality: _movingJpegQuality,
     );
     if (duty != null && duty > 0 && duty < 1) {
       // 讓出主執行緒：觸控與網頁的繪製才跟得上
@@ -257,7 +259,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
       if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
-        frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: widget.nativeSettleJpegQuality);
+        frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: _settleJpegQuality);
       }
       _publishNativeDebug(session);
       return frame;
@@ -274,6 +276,19 @@ class _AqutterNativeState extends State<AqutterNative> {
     }
     _publishNativeDebug(session);
     return frame;
+  }
+
+  static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// 0 以下代表明確關閉壓縮（一律傳未壓縮的 RGBA）；`null` 才依平台決定。
+  double? get _movingJpegQuality {
+    final quality = widget.nativeJpegQuality;
+    return quality == null ? (_isIos ? 0.85 : null) : (quality > 0 ? quality : null);
+  }
+
+  double? get _settleJpegQuality {
+    final quality = widget.nativeSettleJpegQuality;
+    return quality == null ? (_isIos ? 0.92 : null) : (quality > 0 ? quality : null);
   }
 
   void _publishNativeDebug(AqutterNativeSession session) {
