@@ -35,8 +35,9 @@ class AqutterNative extends StatefulWidget {
     this.settleDelay = const Duration(milliseconds: 250),
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
-    this.nativeJpegQuality = 0.7,
+    this.nativeJpegQuality = 0.85,
     this.nativeSettleJpegQuality = 0.92,
+    this.nativeMaxDuty,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
@@ -84,6 +85,11 @@ class AqutterNative extends StatefulWidget {
   /// 畫面停下來補的定格幀的 JPEG 品質；`null` 傳未壓縮的 RGBA（無損，但滿版時一張要幾十 MB，傳輸與解碼會卡住接著的操作）。
   final double? nativeSettleJpegQuality;
 
+  /// 原生擷取佔用主執行緒的上限（0 到 1，擷取耗時占的比例）。擷取在主執行緒做（iOS `drawHierarchy` 一次約 40 ms），
+  /// 連續擷取會把主執行緒吃滿，觸控與網頁的繪製都被拖慢（實機量到網頁每秒卡一次、輸入延遲達數秒）。
+  /// 每次擷取後多等 `耗時 × (1/上限 − 1)` 才進行下一次。`null`：iOS 預設 0.7，其他平台不限制。
+  final double? nativeMaxDuty;
+
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
 
@@ -129,6 +135,7 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 靜止的地圖也每 1/fps 秒擷取一次會把主執行緒吃滿，連觸控都被拖慢（實機量到輸入延遲達數秒）。
   int _unchangedStreak = 0;
   int _backoffTick = 0;
+  int _compareTick = 0;
   int _nativeFrames = 0;
   int _nativeUnchanged = 0;
   int _nativeBackoff = 0;
@@ -229,15 +236,21 @@ class _AqutterNativeState extends State<AqutterNative> {
       }
     }
     final watch = Stopwatch()..start();
+    final duty = widget.nativeMaxDuty ?? (defaultTargetPlatform == TargetPlatform.iOS ? 0.7 : null);
     var frame = await AqutterNativeCapture.capture(
       rect,
       viewTypeContains: widget.nativeViewTypeContains,
       pixelRatio: full ? base : base * _scaler.scale,
       // 網頁剛連上、重新看得到、尺寸變了（forced）時，一定要送一張，否則靜止的畫面永遠到不了網頁
-      skipUnchanged: !forced,
+      // 比對要掃過整張像素（Android 平板約 10 到 15 ms）：連續在動時每 4 幀才比一次，確認靜止後才每幀比
+      skipUnchanged: !forced && (_unchangedStreak > 0 || _compareTick++ % 4 == 0),
       // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
       jpegQuality: widget.nativeJpegQuality,
     );
+    if (duty != null && duty > 0 && duty < 1) {
+      // 讓出主執行緒：觸控與網頁的繪製才跟得上
+      await Future<void>.delayed(watch.elapsed * (1 / duty - 1));
+    }
     if (frame == null) {
       _unchangedStreak += 1;
       _nativeUnchanged += 1;

@@ -62,6 +62,7 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
       return
     }
 
+    val startNs = System.nanoTime()
     val density = activity.resources.displayMetrics.density
     val target = Rect(
       (x * density).roundToInt(),
@@ -92,12 +93,15 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
         result.success(null)
         return
       }
+      val grabbedNs = System.nanoTime()
       val raw = ByteBuffer.allocate(bitmap.byteCount)
       bitmap.copyPixelsToBuffer(raw)
       val bytes = raw.array()
+      val copiedNs = System.nanoTime()
+      fun ms(from: Long, to: Long) = (to - from) / 1_000_000.0
       if (skipUnchanged && lastWidth == bitmap.width && lastHeight == bitmap.height && lastBytes?.contentEquals(bytes) == true) {
         bitmap.recycle()
-        result.success(mapOf("unchanged" to true))
+        result.success(mapOf("unchanged" to true, "timing" to mapOf("draw" to ms(startNs, grabbedNs), "compare" to ms(grabbedNs, System.nanoTime()))))
         return
       }
       lastBytes = bytes
@@ -106,7 +110,8 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
       if (jpegQuality != null) {
         val out = ByteArrayOutputStream(bitmap.byteCount / 8)
         bitmap.compress(Bitmap.CompressFormat.JPEG, (jpegQuality * 100).roundToInt().coerceIn(1, 100), out)
-        result.success(mapOf("width" to bitmap.width, "height" to bitmap.height, "format" to "jpeg", "bytes" to out.toByteArray()))
+        val jpeg = out.toByteArray()
+        result.success(mapOf("width" to bitmap.width, "height" to bitmap.height, "format" to "jpeg", "bytes" to jpeg, "timing" to mapOf("draw" to ms(startNs, grabbedNs), "compare" to ms(grabbedNs, copiedNs), "encode" to ms(copiedNs, System.nanoTime()))))
         bitmap.recycle()
         return
       }
