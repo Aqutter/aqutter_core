@@ -33,7 +33,7 @@ class AqutterNativeCapture {
   ///
   /// [pixelRatio]（每個 logical 像素要幾個像素）給了就縮到那個解析度、不放大；iOS 最多 2 倍。
   /// [jpegQuality]（0 到 1）給了就在原生端壓成 JPEG 再回傳（`format` 為 `jpeg`），不給就回未壓縮的 RGBA。
-  /// [skipUnchanged]（目前只有 iOS 實作）：畫面與上一張完全相同時回 null，省下傳輸與網頁端解碼；回 null 也可能是這一輪擷取不到。
+  /// [skipUnchanged]（iOS、Android）：畫面與上一張完全相同時回 null，省下傳輸與網頁端解碼；回 null 也可能是這一輪擷取不到。
   static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains, double? pixelRatio, bool skipUnchanged = false, double? jpegQuality}) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('capture', {
       'x': rect.left,

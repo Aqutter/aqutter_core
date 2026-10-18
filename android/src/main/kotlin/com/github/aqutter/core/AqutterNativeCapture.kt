@@ -41,6 +41,11 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
 
   private val mainHandler = Handler(Looper.getMainLooper())
 
+  /** 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。 */
+  private var lastBytes: ByteArray? = null
+  private var lastWidth = 0
+  private var lastHeight = 0
+
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     if (call.method != "capture") {
       result.notImplemented()
@@ -79,12 +84,25 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
 
     // 有給品質就壓成 JPEG：移動中的畫面每幀小一個數量級，傳輸與網頁端解碼都省
     val jpegQuality = call.argument<Double>("jpegQuality")
+    // 畫面與上一張完全相同時不回傳像素：靜止的地圖不再持續占用傳輸與網頁端解碼
+    val skipUnchanged = call.argument<Boolean>("skipUnchanged") ?: false
 
     fun finish(bitmap: Bitmap?) {
       if (bitmap == null) {
         result.success(null)
         return
       }
+      val raw = ByteBuffer.allocate(bitmap.byteCount)
+      bitmap.copyPixelsToBuffer(raw)
+      val bytes = raw.array()
+      if (skipUnchanged && lastWidth == bitmap.width && lastHeight == bitmap.height && lastBytes?.contentEquals(bytes) == true) {
+        bitmap.recycle()
+        result.success(mapOf("unchanged" to true))
+        return
+      }
+      lastBytes = bytes
+      lastWidth = bitmap.width
+      lastHeight = bitmap.height
       if (jpegQuality != null) {
         val out = ByteArrayOutputStream(bitmap.byteCount / 8)
         bitmap.compress(Bitmap.CompressFormat.JPEG, (jpegQuality * 100).roundToInt().coerceIn(1, 100), out)
@@ -92,9 +110,7 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
         bitmap.recycle()
         return
       }
-      val buffer = ByteBuffer.allocate(bitmap.byteCount)
-      bitmap.copyPixelsToBuffer(buffer)
-      result.success(mapOf("width" to bitmap.width, "height" to bitmap.height, "bytes" to buffer.array()))
+      result.success(mapOf("width" to bitmap.width, "height" to bitmap.height, "bytes" to bytes))
       bitmap.recycle()
     }
 
@@ -135,7 +151,11 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
    * 所以略過「幾乎滿版且位於視窗最底層」的那一個，改找被鏡像的內容本身（例如地圖裡的 TextureView）。
    */
   private fun findSource(root: View, target: Rect): Source? {
-    var best: Source? = null
+    // TextureView 與 SurfaceView 分開記：滿版地圖時目標區域與 Flutter 自己的（滿版）繪圖表面一樣大，
+    // 光靠重疊面積分不出來，而 Flutter 的表面沒有可複製的資料（PixelCopy 回 ERROR_SOURCE_NO_DATA）。
+    // 有 TextureView 重疊就一律優先用它；沒有才退回 SurfaceView（且略過疑似 Flutter 表面的那個）。
+    var bestTexture: Source? = null
+    var bestSurface: Source? = null
     val location = IntArray(2)
     fun visit(view: View) {
       if (view is WebView || view.visibility != View.VISIBLE) {
@@ -145,11 +165,18 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
         view.getLocationInWindow(location)
         val bounds = Rect(location[0], location[1], location[0] + view.width, location[1] + view.height)
         val overlap = Rect()
-        val isFlutterSurface = view is SurfaceView && view.width >= root.width * 0.9 && view.height >= root.height * 0.9 && target.height() < view.height * 0.9
-        if (!isFlutterSurface && overlap.setIntersect(bounds, target)) {
+        val isFlutterSurface = view is SurfaceView && view.width >= root.width * 0.9 && view.height >= root.height * 0.9
+        if (overlap.setIntersect(bounds, target)) {
           val area = overlap.width().toLong() * overlap.height().toLong()
-          if (best == null || area > best!!.overlap) {
-            best = Source(view, area)
+          if (view is TextureView) {
+            if (bestTexture == null || area > bestTexture!!.overlap) {
+              bestTexture = Source(view, area)
+            }
+          }
+          else if (!isFlutterSurface || target.height() >= view.height * 0.9) {
+            if (bestSurface == null || area > bestSurface!!.overlap) {
+              bestSurface = Source(view, area)
+            }
           }
         }
       }
@@ -160,7 +187,7 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
       }
     }
     visit(root)
-    return best
+    return bestTexture ?: bestSurface
   }
 
   /** 除錯用：列出 view 階層的類名（含父類別與大小）。 */
