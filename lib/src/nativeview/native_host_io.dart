@@ -11,7 +11,8 @@ import 'native_frame.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數。
-/// `--dart-define=AQUTTER_NATIVE_MAX_INFLIGHT=N` 可調（量測用）：1 沒有排隊、延遲最低但吞吐較低；預設 3 讓擷取與傳輸流水線化。
+/// 預設的在途幀數。每個工作階段可各自設定（`AqutterNative.maxInFlight`、網頁的 `max-in-flight` 屬性，執行中可改）；
+/// `--dart-define=AQUTTER_NATIVE_MAX_INFLIGHT=N` 只改這個預設值。1 沒有排隊、延遲最低但吞吐較低；3 讓擷取與傳輸流水線化。
 const int aqutterNativeMaxInFlight = int.fromEnvironment('AQUTTER_NATIVE_MAX_INFLIGHT', defaultValue: 3);
 
 /// 網頁端連線所需的資訊；由 App 以 bridge 交給網頁。
@@ -160,13 +161,14 @@ class AqutterNativeHost with WidgetsBindingObserver {
     if (sockets == null || sockets.isEmpty) {
       return true;
     }
-    return sockets.any((socket) => (_inFlight[socket] ?? 0) < aqutterNativeMaxInFlight);
+    final limit = _sessions[id]?.maxInFlight ?? aqutterNativeMaxInFlight;
+    return sockets.any((socket) => (_inFlight[socket] ?? 0) < limit);
   }
 
   void _broadcast(String id, Uint8List header, Uint8List payload) {
     for (final socket in List<WebSocket>.of(_clients[id] ?? const <WebSocket>{})) {
       final pending = _inFlight[socket] ?? 0;
-      if (pending >= aqutterNativeMaxInFlight) {
+      if (pending >= (_sessions[id]?.maxInFlight ?? aqutterNativeMaxInFlight)) {
         continue; // 這個連線還沒消化完，丟掉這一幀而不是堆在記憶體
       }
       _inFlight[socket] = pending + 1;
@@ -244,6 +246,12 @@ class AqutterNativeHost with WidgetsBindingObserver {
           }
         case 'resize':
           _applyResize(id, decoded);
+        case 'config':
+          // 網頁端設定：目前只有 maxInFlight（1 到 8）
+          final limit = decoded['maxInFlight'];
+          if (limit is num && limit >= 1 && limit <= 8) {
+            _sessions[id]?.maxInFlight = limit.toInt();
+          }
         case 'visibility':
           if (decoded['visible'] == false) {
             _hidden.add(socket);

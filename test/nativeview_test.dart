@@ -119,6 +119,38 @@ void main() {
       expect(frame[1], [1, 2, 3, 255]);
     });
 
+    test('a per-session maxInFlight (set by the page via a config message) limits unacknowledged frames', () async {
+      final session = AqutterNativeSession(
+        id: 'inflight',
+        fps: 120,
+        capture: () async => AqutterNativeFrame(
+          width: 1,
+          height: 1,
+          format: AqutterNativeFormat.rgba,
+          payload: Uint8List.fromList([1, 2, 3, 255]),
+        ),
+      );
+      session.maxInFlight = 1;
+      host.register(session);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'inflight');
+      addTearDown(() => socket.close());
+      var messages = 0;
+      socket.listen((_) => messages += 1);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // 一幀是標頭加像素兩則；上限 1，沒有確認就只送一幀
+      expect(messages, 2);
+      // 網頁把上限調成 3：不必重連，之後最多再送 3 幀（含已送的那一幀共 3）
+      socket.add(jsonEncode({'type': 'config', 'maxInFlight': 3}));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(messages, 6);
+      expect(session.maxInFlight, 3);
+      // 不合法的值被忽略
+      socket.add(jsonEncode({'type': 'config', 'maxInFlight': 99}));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(session.maxInFlight, 3);
+    });
+
     test('rejects a wrong token and an unknown session', () async {
       host.register(AqutterNativeSession(id: 'known', capture: () async => null));
       final endpoint = await host.ensureStarted();

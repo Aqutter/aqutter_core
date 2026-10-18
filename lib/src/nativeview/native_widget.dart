@@ -39,6 +39,7 @@ class AqutterNative extends StatefulWidget {
     this.nativeJpegQuality,
     this.nativeSettleJpegQuality,
     this.nativeMaxDuty,
+    this.maxInFlight,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
@@ -92,6 +93,10 @@ class AqutterNative extends StatefulWidget {
   /// 連續擷取會把主執行緒吃滿，觸控與網頁的繪製都被拖慢（實機量到網頁每秒卡一次、輸入延遲達數秒）。
   /// 每次擷取後多等 `耗時 × (1/上限 − 1)` 才進行下一次。`null`：iOS 預設 0.7，其他平台不限制。
   final double? nativeMaxDuty;
+
+  /// 這個鏡像每個連線的在途幀數上限（1 到 8）；`null` 用預設（3，或編譯時的 `AQUTTER_NATIVE_MAX_INFLIGHT`）。
+  /// 網頁的 `max-in-flight` 屬性之後設定會覆蓋它。傳輸受限的大幀內容調成 1 可大幅降低延遲；擷取受限的內容（例如地圖）沒有差別。
+  final int? maxInFlight;
 
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
@@ -201,6 +206,9 @@ class _AqutterNativeState extends State<AqutterNative> {
       _unregister();
       _register();
     }
+    else if (oldWidget.maxInFlight != widget.maxInFlight) {
+      _session?.maxInFlight = widget.maxInFlight;
+    }
   }
 
   void _register() {
@@ -221,6 +229,7 @@ class _AqutterNativeState extends State<AqutterNative> {
         widget.onMessage?.call(message);
       },
     );
+    session.maxInFlight = widget.maxInFlight;
     _session = session;
     AqutterNativeHost.instance.register(session);
   }

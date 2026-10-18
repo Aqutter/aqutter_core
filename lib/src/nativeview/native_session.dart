@@ -199,6 +199,11 @@ class AqutterNativeSession {
 
   bool get hasClients => _clients > 0;
 
+  /// 這個工作階段每個連線允許的在途（已送出、未被確認）幀數；`null` 用預設值（`aqutterNativeMaxInFlight`）。
+  /// 1 沒有排隊、延遲最低但吞吐較低；3 讓擷取與傳輸流水線化。可由 App（`AqutterNative.maxInFlight`）或網頁（`max-in-flight` 屬性）設定，
+  /// 之後設的覆蓋先設的，連線中隨時可改。
+  int? maxInFlight;
+
   /// 擷取來源（widget）可寫入的除錯資訊，隨 [diagnostics] 一起回報。
   final Map<String, Object?> debug = {};
 
