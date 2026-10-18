@@ -11,7 +11,8 @@ import 'native_frame.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數。
-const int aqutterNativeMaxInFlight = 3;
+/// `--dart-define=AQUTTER_NATIVE_MAX_INFLIGHT=N` 可調（量測用）：1 沒有排隊、延遲最低但吞吐較低；預設 3 讓擷取與傳輸流水線化。
+const int aqutterNativeMaxInFlight = int.fromEnvironment('AQUTTER_NATIVE_MAX_INFLIGHT', defaultValue: 3);
 
 /// 網頁端連線所需的資訊；由 App 以 bridge 交給網頁。
 class AqutterNativeEndpoint {

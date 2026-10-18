@@ -290,3 +290,21 @@ Flutter 自己畫的內容（`toImage` 路徑，不是原生擷取）快得多�
 ### iPad 偶發的 1 秒卡頓
 
 iPad 實機「混戰」場景（隨機甩動、縮放、點擊）約每 7 到 10 輪出現一次約 1013 ms 的網頁卡頓。同一時間 Flutter 的 UI 執行緒也量到 1012 到 1015 ms 的停頓（`--dart-define=AQUTTER_NATIVE_DIAG=true` 的監看），而原生擷取沒有任何單次超過 300 ms，所以是 App 的主執行緒被其他工作擋住，不是鏡像管線造成的；懷疑是 Google Maps SDK 在密集縮放時的主執行緒工作，沒有再往下查。iOS 結束後是否還能操作，改用「原生端現算地圖中心的經緯度，拖曳前後比較」判斷（iOS 的 `moveCamera` 不更新相機回報，不能只看相機）。
+
+### 傳輸方式評估：WebSocket、自訂 URL scheme、WebRTC（實測）
+
+用合成的固定大小幀（走現行 WebSocket 鏡像管線）對照「網頁用 `fetch` 向 App 拉資料」（iOS 自訂 scheme `WKURLSchemeHandler`；Android 虛擬 https 主機加 `shouldInterceptRequest`），各 6 秒：
+
+| 幀大小 | Android WebSocket | Android 拉取（1／2 個同時） | iPad WebSocket | iPad 拉取（1／2 個同時） |
+|---|---|---|---|---|
+| 1 MB | 109 MB/s、7 ms | 70／117 MB/s、14／16 ms | 57 MB/s（60 fps 上限）、6 ms | 709／888 MB/s、1.3／2 ms |
+| 3.8 MB | 270 MB/s、42 ms | 111／150 MB/s、34／51 ms | 229 MB/s（上限）、6 ms | 771／801 MB/s、5／10 ms |
+| 7.6 MB | 278 MB/s、81 ms | 109／159 MB/s、70／96 ms | 458 MB/s（上限）、10 ms | 531／616 MB/s、14／25 ms |
+| 11.5 MB | 273 MB/s、125 ms | 119／179 MB/s、97／128 ms | 691 MB/s（上限）、16 ms | 491／618 MB/s、23／37 ms |
+
+- WebSocket 在 iPad 被「每個顯示幀只畫一次」限制在 60 fps（欄位是下限）；拉取沒有這個限制，所以小幀的吞吐看起來高，不代表傳輸更快。
+- Android 拉取慢 2 到 2.5 倍：每個請求都要經過 Dart 回呼。大幀時兩個平台的拉取都不比 WebSocket 快。
+- 拉取在 iOS 要讓 `fetch` 能讀，自訂 scheme 的回應必須是 `HTTPURLResponse` 並帶 `Access-Control-Allow-Origin`（現行 `CustomSchemeHandler` 回的是不帶標頭的 `URLResponse`，頁面來自 http 時 `fetch` 一律失敗）；Android 的自訂 scheme 不能 `fetch`，要改用虛擬 https 主機。
+- 「不排隊」的好處來自未確認幀數，不是傳輸方式：`AQUTTER_NATIVE_MAX_INFLIGHT`（預設 3）調成 1，Android 平板 11.5 MB 的延遲從 125 ms 降到 44 ms、幀率 23.8 降到 22；7.6 MB 延遲 81 降到 33 ms、幀率 36.5 降到 29；3.8 MB 延遲 42 降到 19 ms、幀率 70.7 降到 50。吞吐在大幀幾乎不變，中小幀會掉。
+- 但地圖是擷取受限：Android 滿版地圖壓力測試（3 輪）上限 2 與預設 3 幾乎一樣（13.6 到 18.6 對 13.5 到 17.6 fps、延遲 62 到 73 對 63 到 74 ms），所以地圖不受這個值影響。
+- WebRTC：Android arm64 release APK 實測從 36.7 MB 變 72.2 MB（加 `flutter_webrtc 1.6.2`，+35.5 MB）；iOS 沒量。傳輸不是瓶頸，不建議採用。
