@@ -204,6 +204,9 @@ class AqutterNativeSession {
   /// 之後設的覆蓋先設的，連線中隨時可改。
   int? maxInFlight;
 
+  /// 自動調節在途幀數（見 `AqutterNativeInFlightController`）。開啟時 [maxInFlight] 由控制器改寫。
+  bool autoMaxInFlight = false;
+
   /// 擷取來源（widget）可寫入的除錯資訊，隨 [diagnostics] 一起回報。
   final Map<String, Object?> debug = {};
 

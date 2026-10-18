@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'native_frame.dart';
+import 'native_inflight.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數。
@@ -45,6 +46,10 @@ class AqutterNativeHost with WidgetsBindingObserver {
   AqutterNativeEndpoint? _endpoint;
   Future<AqutterNativeEndpoint>? _starting;
   bool _observing = false;
+  Timer? _autoTimer;
+  final Map<String, AqutterNativeInFlightController> _autoControllers = {};
+  final Map<String, int> _framesSent = {};
+  final Stopwatch _autoClock = Stopwatch()..start();
   bool _wasBackgrounded = false;
 
   final Map<String, AqutterNativeSession> _sessions = {};
@@ -76,6 +81,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
     _server = server;
     _endpoint = AqutterNativeEndpoint(port: server.port, token: token);
     server.listen(_onRequest);
+    _autoTimer ??= Timer.periodic(const Duration(seconds: 1), (_) => _tickAuto());
     debugPrint('[aqutter-native] ws server on ws://127.0.0.1:${server.port}');
     return _endpoint!;
   }
@@ -147,6 +153,19 @@ class AqutterNativeHost with WidgetsBindingObserver {
 
   bool hasSession(String id) => _sessions.containsKey(id);
 
+  /// 每秒一次：替開啟「自動在途幀數」的工作階段更新上限。
+  void _tickAuto() {
+    for (final entry in _sessions.entries) {
+      final session = entry.value;
+      if (!session.autoMaxInFlight) {
+        _autoControllers.remove(entry.key);
+        continue;
+      }
+      final controller = _autoControllers.putIfAbsent(entry.key, AqutterNativeInFlightController.new);
+      session.maxInFlight = controller.onTick(_autoClock.elapsed, _framesSent[entry.key] ?? 0);
+    }
+  }
+
   /// 某個工作階段與其連線的內部狀態（除錯用）。
   Map<String, Object?> diagnostics(String id) => {
         'session': _sessions[id]?.diagnostics(),
@@ -172,6 +191,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
         continue; // 這個連線還沒消化完，丟掉這一幀而不是堆在記憶體
       }
       _inFlight[socket] = pending + 1;
+      _framesSent[id] = (_framesSent[id] ?? 0) + 1;
       // 標頭與像素分兩則送（省掉複製）；兩則之間不會插入其他幀，網頁端依序配對
       socket.add(header);
       socket.add(payload);
@@ -249,8 +269,13 @@ class AqutterNativeHost with WidgetsBindingObserver {
         case 'config':
           // 網頁端設定：目前只有 maxInFlight（1 到 8）
           final limit = decoded['maxInFlight'];
-          if (limit is num && limit >= 1 && limit <= 8) {
-            _sessions[id]?.maxInFlight = limit.toInt();
+          if (limit == 'auto') {
+            _sessions[id]?.autoMaxInFlight = true;
+          }
+          else if (limit is num && limit >= 1 && limit <= 8) {
+            _sessions[id]
+              ?..autoMaxInFlight = false
+              ..maxInFlight = limit.toInt();
           }
         case 'visibility':
           if (decoded['visible'] == false) {
@@ -291,6 +316,10 @@ class AqutterNativeHost with WidgetsBindingObserver {
       unregister(session);
     }
     await _server?.close(force: true);
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    _autoControllers.clear();
+    _framesSent.clear();
     _server = null;
     _endpoint = null;
     _starting = null;

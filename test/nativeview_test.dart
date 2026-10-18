@@ -151,6 +151,21 @@ void main() {
       expect(session.maxInFlight, 3);
     });
 
+    test('the page can switch a session to automatic in-flight tuning and back to a fixed value', () async {
+      final session = AqutterNativeSession(id: 'auto', capture: () async => null);
+      host.register(session);
+      final endpoint = await host.ensureStarted();
+      final socket = await connect(endpoint, 'auto');
+      addTearDown(() => socket.close());
+      socket.add(jsonEncode({'type': 'config', 'maxInFlight': 'auto'}));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(session.autoMaxInFlight, isTrue);
+      socket.add(jsonEncode({'type': 'config', 'maxInFlight': 2}));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(session.autoMaxInFlight, isFalse);
+      expect(session.maxInFlight, 2);
+    });
+
     test('rejects a wrong token and an unknown session', () async {
       host.register(AqutterNativeSession(id: 'known', capture: () async => null));
       final endpoint = await host.ensureStarted();

@@ -40,6 +40,7 @@ class AqutterNative extends StatefulWidget {
     this.nativeSettleJpegQuality,
     this.nativeMaxDuty,
     this.maxInFlight,
+    this.autoMaxInFlight = false,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
@@ -97,6 +98,10 @@ class AqutterNative extends StatefulWidget {
   /// 這個鏡像每個連線的在途幀數上限（1 到 8）；`null` 用預設（3，或編譯時的 `AQUTTER_NATIVE_MAX_INFLIGHT`）。
   /// 網頁的 `max-in-flight` 屬性之後設定會覆蓋它。傳輸受限的大幀內容調成 1 可大幅降低延遲；擷取受限的內容（例如地圖）沒有差別。
   final int? maxInFlight;
+
+  /// 自動調節在途幀數：每隔一段時間探測各個值的實際幀率，選「幀率不明顯下降的最小值」。
+  /// 與 [maxInFlight] 擇一；兩者都給時以自動為準。網頁的 `max-in-flight="auto"` 屬性等價。
+  final bool autoMaxInFlight;
 
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
@@ -206,8 +211,10 @@ class _AqutterNativeState extends State<AqutterNative> {
       _unregister();
       _register();
     }
-    else if (oldWidget.maxInFlight != widget.maxInFlight) {
-      _session?.maxInFlight = widget.maxInFlight;
+    else if (oldWidget.maxInFlight != widget.maxInFlight || oldWidget.autoMaxInFlight != widget.autoMaxInFlight) {
+      _session
+        ?..maxInFlight = widget.maxInFlight
+        ..autoMaxInFlight = widget.autoMaxInFlight;
     }
   }
 
@@ -230,6 +237,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       },
     );
     session.maxInFlight = widget.maxInFlight;
+    session.autoMaxInFlight = widget.autoMaxInFlight;
     _session = session;
     AqutterNativeHost.instance.register(session);
   }
