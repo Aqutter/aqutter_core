@@ -116,6 +116,15 @@ class _AqutterNativeState extends State<AqutterNative> {
   final Stopwatch _sinceChange = Stopwatch()..start();
   bool _settled = true;
 
+  /// 原生擷取連續「畫面沒變」的次數。原生擷取（drawHierarchy）在主執行緒做，一次要幾十毫秒，
+  /// 靜止的地圖也每 1/fps 秒擷取一次會把主執行緒吃滿，連觸控都被拖慢（實機量到輸入延遲達數秒）。
+  int _unchangedStreak = 0;
+  int _backoffTick = 0;
+
+  /// 連續多少次沒變之後開始降頻，以及降頻後每幾次輪詢才真的擷取一次。
+  static const int _backoffAfter = 30;
+  static const int _backoffEvery = 6;
+
   @override
   void initState() {
     super.initState();
@@ -154,6 +163,7 @@ class _AqutterNativeState extends State<AqutterNative> {
           final box = _boundaryKey.currentContext?.findRenderObject();
           _pointers.handle(message, box is RenderBox ? box : null);
         }
+        _unchangedStreak = 0; // 網頁有操作：地圖馬上會動（含之後的圖磚載入），恢復全速擷取
         widget.onMessage?.call(message);
       },
     );
@@ -198,6 +208,12 @@ class _AqutterNativeState extends State<AqutterNative> {
     final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     // 定格後（_settled）以完整解析度比對；動起來的第一張也是完整解析度，之後才降
     final full = !adaptive || _settled || _scaler.scale >= 1.0;
+    if (!forced && _unchangedStreak >= _backoffAfter) {
+      _backoffTick = (_backoffTick + 1) % _backoffEvery;
+      if (_backoffTick != 0) {
+        return null;
+      }
+    }
     final watch = Stopwatch()..start();
     var frame = await AqutterNativeCapture.capture(
       rect,
@@ -207,6 +223,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       skipUnchanged: !forced,
     );
     if (frame == null) {
+      _unchangedStreak += 1;
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
       if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
@@ -214,6 +231,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       }
       return frame;
     }
+    _unchangedStreak = 0;
     _sinceChange
       ..reset()
       ..start();
