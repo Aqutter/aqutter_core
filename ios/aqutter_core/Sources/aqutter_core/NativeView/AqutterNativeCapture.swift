@@ -18,6 +18,9 @@ public class AqutterNativeCapture: NSObject {
 
   /// 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。
   private var lastBytes: Data?
+  /// 最近一次擷取各階段耗時（毫秒），隨結果回傳給 Dart 方便量測。
+  private var timing: [String: Double] = [:]
+  private func now() -> Double { return CACurrentMediaTime() * 1000 }
   private var lastSize: (Int, Int) = (0, 0)
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -40,8 +43,9 @@ public class AqutterNativeCapture: NSObject {
     let typeName = args["viewTypeContains"] as? String
     let pixelRatio = args["pixelRatio"] as? Double
     let skipUnchanged = args["skipUnchanged"] as? Bool ?? false
+    let jpegQuality = args["jpegQuality"] as? Double
     DispatchQueue.main.async {
-      result(self.capture(x: x, y: y, w: w, h: h, viewTypeContains: typeName, pixelRatio: pixelRatio, skipUnchanged: skipUnchanged))
+      result(self.capture(x: x, y: y, w: w, h: h, viewTypeContains: typeName, pixelRatio: pixelRatio, skipUnchanged: skipUnchanged, jpegQuality: jpegQuality))
     }
   }
 
@@ -52,7 +56,7 @@ public class AqutterNativeCapture: NSObject {
       .first { $0.isKeyWindow }
   }
 
-  private func capture(x: Double, y: Double, w: Double, h: Double, viewTypeContains: String?, pixelRatio: Double?, skipUnchanged: Bool) -> Any? {
+  private func capture(x: Double, y: Double, w: Double, h: Double, viewTypeContains: String?, pixelRatio: Double?, skipUnchanged: Bool, jpegQuality: Double?) -> Any? {
     guard let window = keyWindow() else { return nil }
     // 解析度：呼叫端給了 pixelRatio（網頁實際需要的、或自適應降下來的）就用它，上限仍是 2× 與螢幕倍率
     let scale = min(CGFloat(pixelRatio ?? Double(AqutterNativeCapture.captureScale)), AqutterNativeCapture.captureScale, window.screen.scale)
@@ -67,8 +71,10 @@ public class AqutterNativeCapture: NSObject {
       target.bounds.width >= 1, target.bounds.height >= 1 {
       let bounds = target.bounds
       // 直接畫進自己的 RGBA 緩衝：省掉「renderer 出 CGImage 再重畫一次」的整張複製
+      let drawStart = now()
       if let direct = renderDirect(view: target, bounds: bounds, scale: scale) {
-        return emit(width: direct.width, height: direct.height, data: direct.data, skipUnchanged: skipUnchanged)
+        timing = ["draw": now() - drawStart]
+        return emit(width: direct.width, height: direct.height, data: direct.data, skipUnchanged: skipUnchanged, jpegQuality: jpegQuality)
       }
       let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
         target.drawHierarchy(in: bounds, afterScreenUpdates: true)
@@ -111,17 +117,44 @@ public class AqutterNativeCapture: NSObject {
     return drawn ? (width, height, data) : nil
   }
 
-  private func emit(width: Int, height: Int, data: Data, skipUnchanged: Bool) -> Any? {
+  private func emit(width: Int, height: Int, data: Data, skipUnchanged: Bool, jpegQuality: Double?) -> Any? {
+    let compareStart = now()
     if skipUnchanged, let last = lastBytes, lastSize == (width, height), last == data {
-      return ["unchanged": true]
+      timing["compare"] = now() - compareStart
+      return ["unchanged": true, "timing": timing]
     }
+    timing["compare"] = now() - compareStart
     lastBytes = data
     lastSize = (width, height)
+    // 有給品質就壓成 JPEG：移動中的畫面每幀小一個數量級，傳輸與網頁端解碼都省
+    let encodeStart = now()
+    if let quality = jpegQuality, let jpeg = jpegData(width: width, height: height, data: data, quality: quality) {
+      timing["encode"] = now() - encodeStart
+      return [
+        "timing": timing,
+        "width": width,
+        "height": height,
+        "format": "jpeg",
+        "bytes": FlutterStandardTypedData(bytes: jpeg),
+      ]
+    }
     return [
+      "timing": timing,
       "width": width,
       "height": height,
       "bytes": FlutterStandardTypedData(bytes: data),
     ]
+  }
+
+  private func jpegData(width: Int, height: Int, data: Data, quality: Double) -> Data? {
+    guard let provider = CGDataProvider(data: data as CFData),
+      let image = CGImage(
+        width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    else { return nil }
+    return UIImage(cgImage: image).jpegData(compressionQuality: CGFloat(quality))
   }
 
   /// 遞迴找類名含 [typeContaining] 的 view（以類名比對，免 import 該 view 所屬的 SDK）。

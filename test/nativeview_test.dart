@@ -28,6 +28,10 @@ void main() {
     test('png uses wire code 0', () {
       expect(AqutterNativeFormat.png.wire, 0);
     });
+
+    test('jpeg uses wire code 2', () {
+      expect(AqutterNativeFormat.jpeg.wire, 2);
+    });
   });
 
   group('host and session', () {

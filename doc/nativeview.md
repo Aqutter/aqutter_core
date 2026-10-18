@@ -42,6 +42,7 @@ AqutterNative(
 |---|---|
 | `0` | PNG |
 | `1` | 未壓縮 straight（非預乘）RGBA，`w × h × 4` bytes |
+| `2` | JPEG（有損、不含 alpha） |
 
 ## 訊息格式（網頁 → Dart，JSON 文字）
 
@@ -168,7 +169,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 若要做，建議的設計：
 
-1. 協定新增 `fmt=2`（H.264 Annex B）；網頁在連線時以 `capabilities` 告知是否支援 WebCodecs，不支援就維持 RGBA。
+1. 協定新增 `fmt=3`（H.264 Annex B；`2` 已用於 JPEG）；網頁在連線時以 `capabilities` 告知是否支援 WebCodecs，不支援就維持 RGBA。
 2. 只在 Android（MediaCodec）與 iOS／macOS（VideoToolbox）實作；Windows 與 Linux 維持 RGBA（編碼器要另外整合，且 WPE 的 WebCodecs 支援未驗證）。
 3. 現有的「停止變動後補一幀完整解析度」改成補一幀無損（RGBA 或 PNG），文字邊緣不會殘留壓縮痕跡。
 4. 新連線、尺寸改變時強制關鍵幀；寬高補成偶數，網頁端裁回。
@@ -254,3 +255,11 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 - **不能複製 Flutter 自己的繪圖表面**：Impeller 以 Vulkan 呈現時，對它做 `PixelCopy` 回 `ERROR_SOURCE_NO_DATA`。
 - **不能靠類名找 view**：release 版 R8 會把 Flutter 的類別混淆（實測 `FlutterSurfaceView` 變成 `rk`），所以只用型別與位置判斷。
 - 需要 API 26 以上（`PixelCopy`）。輸出是預乘 alpha 的 ARGB_8888，被擷取的 view 本身不透明時與 straight alpha 相同。
+
+## 原生擷取的 JPEG 幀與滿版地圖壓力測試
+
+原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`，預設 0.7；`null` 關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀永遠是未壓縮的 RGBA，所以靜止畫面無損。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）目前只有 iOS。
+
+iOS 的原生擷取各階段耗時隨結果回傳（`draw`、`compare`、`encode`，毫秒），可從 plugin 的診斷讀到。iPad 模擬器滿版地圖實測：`drawHierarchy` 約 75 到 85 ms，與解析度幾乎無關（0.25 倍與 0.5 倍一樣），是這條管線的固定成本；比對 0.2 到 0.9 ms，JPEG 編碼 3 到 14 ms。`afterScreenUpdates: false` 只快約一成、幀率沒有改善，沒有採用。模擬器是軟體渲染，實機的數字要另外量。
+
+demo-app 的 `map.html` 是滿版地圖加壓力測試：用合成的指標事件（與真實觸控走同一個辨識器）跑甩動、繞圈、雙指縮放加旋轉、連續張合、雙擊穿插與混戰，量 fps、幀間隔、延遲、每幀大小與各階段耗時，結果寫進 `probe.jsonl`。網址加 `?stress=1` 會自動開跑。

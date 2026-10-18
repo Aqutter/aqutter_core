@@ -35,6 +35,7 @@ class AqutterNative extends StatefulWidget {
     this.settleDelay = const Duration(milliseconds: 250),
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
+    this.nativeJpegQuality = 0.7,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
@@ -74,6 +75,10 @@ class AqutterNative extends StatefulWidget {
 
   /// 以原生方式擷取（Texture 與 PlatformView 用，如地圖）：iOS 用 `drawHierarchy`，Android 用 `PixelCopy`；其他平台忽略。
   final bool nativeCapture;
+
+  /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null` 一律傳未壓縮的 RGBA。
+  /// 停下來補的定格幀永遠是未壓縮的，所以靜止的畫面仍然無損。
+  final double? nativeJpegQuality;
 
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
@@ -123,7 +128,6 @@ class _AqutterNativeState extends State<AqutterNative> {
   int _nativeFrames = 0;
   int _nativeUnchanged = 0;
   int _nativeBackoff = 0;
-  int _nativeNull = 0;
 
   /// 連續多少次沒變之後開始降頻，以及降頻後每幾次輪詢才真的擷取一次。
   static const int _backoffAfter = 30;
@@ -227,6 +231,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       pixelRatio: full ? base : base * _scaler.scale,
       // 網頁剛連上、重新看得到、尺寸變了（forced）時，一定要送一張，否則靜止的畫面永遠到不了網頁
       skipUnchanged: !forced,
+      // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
+      jpegQuality: widget.nativeJpegQuality,
     );
     if (frame == null) {
       _unchangedStreak += 1;
@@ -258,10 +264,10 @@ class _AqutterNativeState extends State<AqutterNative> {
       ..['nativeFrames'] = _nativeFrames
       ..['nativeUnchanged'] = _nativeUnchanged
       ..['nativeBackoff'] = _nativeBackoff
-      ..['nativeNull'] = _nativeNull
       ..['streak'] = _unchangedStreak
       ..['settled'] = _settled
-      ..['scale'] = _scaler.scale;
+      ..['scale'] = _scaler.scale
+      ..['nativeTimingMs'] = AqutterNativeCapture.lastTimings;
   }
 
   Future<AqutterNativeFrame?> _captureFrame(_RenderCountingRepaintBoundary box, AqutterNativeSession session, bool forced) async {

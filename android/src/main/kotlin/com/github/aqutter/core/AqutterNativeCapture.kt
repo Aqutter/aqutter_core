@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -76,9 +77,19 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
     val dstWidth = (source.view.width * scale).roundToInt().coerceAtLeast(1)
     val dstHeight = (source.view.height * scale).roundToInt().coerceAtLeast(1)
 
+    // 有給品質就壓成 JPEG：移動中的畫面每幀小一個數量級，傳輸與網頁端解碼都省
+    val jpegQuality = call.argument<Double>("jpegQuality")
+
     fun finish(bitmap: Bitmap?) {
       if (bitmap == null) {
         result.success(null)
+        return
+      }
+      if (jpegQuality != null) {
+        val out = ByteArrayOutputStream(bitmap.byteCount / 8)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, (jpegQuality * 100).roundToInt().coerceIn(1, 100), out)
+        result.success(mapOf("width" to bitmap.width, "height" to bitmap.height, "format" to "jpeg", "bytes" to out.toByteArray()))
+        bitmap.recycle()
         return
       }
       val buffer = ByteBuffer.allocate(bitmap.byteCount)

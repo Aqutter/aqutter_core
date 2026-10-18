@@ -6,7 +6,10 @@ enum AqutterNativeFormat {
   png(0),
 
   /// 未壓縮的 straight（非預乘）RGBA，每像素 4 bytes。
-  rgba(1);
+  rgba(1),
+
+  /// JPEG 壓縮（有損、不含 alpha）：移動中的畫面用它，每幀小一個數量級，網頁端也不必複製／上傳整張未壓縮像素。
+  jpeg(2);
 
   const AqutterNativeFormat(this.wire);
 
