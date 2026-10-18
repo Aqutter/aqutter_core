@@ -91,7 +91,8 @@ class AqutterNative extends StatefulWidget {
 
   /// 原生擷取佔用主執行緒的上限（0 到 1，擷取耗時占的比例）。擷取在主執行緒做（iOS `drawHierarchy` 一次約 40 ms），
   /// 連續擷取會把主執行緒吃滿，觸控與網頁的繪製都被拖慢（實機量到網頁每秒卡一次、輸入延遲達數秒）。
-  /// 每次擷取後多等 `耗時 × (1/上限 − 1)` 才進行下一次。`null`：iOS 預設 0.7，其他平台不限制。
+  /// 每次擷取後多等 `耗時 × (1/上限 − 1)` 才進行下一次。`null`（預設）是 0.7（iOS 與 Android 都是）；1 以上等於不限制。
+  /// 實測（滿版地圖）：iPad 不限制時網頁每秒卡約 1 秒、0.7 時約 100 ms；Android 平板 0.7 的幀率與不限制差不多（14.4 對 14.7 到 15.8 fps），延遲約少 20 ms（50 對 68 到 72 ms）。
   final double? nativeMaxDuty;
 
   /// 這個鏡像每個連線的在途幀數上限（1 到 8）；`null` 用預設（3，或編譯時的 `AQUTTER_NATIVE_MAX_INFLIGHT`）。
@@ -286,7 +287,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       }
     }
     final watch = Stopwatch()..start();
-    final duty = widget.nativeMaxDuty ?? (defaultTargetPlatform == TargetPlatform.iOS ? 0.7 : null);
+    final duty = widget.nativeMaxDuty ?? _defaultDuty;
     var frame = await AqutterNativeCapture.capture(
       rect,
       viewTypeContains: widget.nativeViewTypeContains,
@@ -307,7 +308,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       }
       session.debug['slowDraws'] = slow;
     }
-    if (duty != null && duty > 0 && duty < 1) {
+    if (duty > 0 && duty < 1) {
       // 讓出主執行緒：觸控與網頁的繪製才跟得上
       await Future<void>.delayed(watch.elapsed * (1 / duty - 1));
     }
@@ -336,7 +337,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     return frame;
   }
 
-  static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+  /// 原生擷取佔用主執行緒的預設上限。
+  static const double _defaultDuty = 0.7;
 
   /// 移動中的幀壓成 JPEG 的品質；`null` 或 0 以下是不壓縮（預設，所有平台都傳未壓縮的 RGBA）。
   double? get _movingJpegQuality {
@@ -353,12 +355,12 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 目前的傳輸模式（顯示用）：移動中的格式、定格幀格式、解析度下限、主執行緒占用上限。
   Map<String, Object?> get _modeDescription {
     String format(double? quality) => quality == null ? 'RGBA' : 'JPEG ${quality.toStringAsFixed(2)}';
-    final duty = widget.nativeMaxDuty ?? (_isIos ? 0.7 : null);
+    final duty = widget.nativeMaxDuty ?? _defaultDuty;
     return {
       'compress': format(_movingJpegQuality),
       'settle': format(_settleJpegQuality),
       'minScale': widget.minScale,
-      'duty': duty == null || duty >= 1 ? '無' : duty.toStringAsFixed(2),
+      'duty': duty >= 1 ? '無' : duty.toStringAsFixed(2),
     };
   }
 

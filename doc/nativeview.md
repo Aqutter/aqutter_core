@@ -361,5 +361,5 @@ Android 平板實測（同一個建置，執行中改屬性，每個設定量 20
 ### 現行預設（RGBA）
 
 - 所有平台預設傳未壓縮的 RGBA；JPEG 要用 `AqutterNative(nativeJpegQuality: …)` 明確開啟（0.85 是實測用的值）。依據是上面的雙機對照：iPad RGBA 13.2 fps 對 JPEG 9.9 fps、Android 平板 15.8 對 11.6 fps；代價是每幀大很多（iPad 約 4 MB、Android 約 7 MB），頻寬或記憶體受限時才值得開 JPEG。
-- iOS 的主執行緒占用上限預設 0.7（`nativeMaxDuty`）；在途幀數預設 3，`max-in-flight` 可每個鏡像各自設定。
+- 原生擷取佔用主執行緒的上限預設 0.7（`nativeMaxDuty`，iOS 與 Android 都是）；在途幀數預設 3，`max-in-flight` 可每個鏡像各自設定。Android 平板量測：0.7 的幀率與不限制差不多（14.4 對 14.7 到 15.8 fps），延遲約少 20 ms（50 對 68 到 72 ms）；單次量測。
 - 在途幀數 2 與 3 在兩個平台上幾乎沒有差別（Android 15.1 對 14.7 fps、iPad 13.0 對 12.8 fps，在量測波動之內）。
