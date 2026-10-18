@@ -20,6 +20,9 @@ class AqutterNativeCapture {
   /// 最近一次擷取在原生端各階段的耗時（毫秒；iOS）：draw、compare、encode。量測用。
   static Map<String, double> lastTimings = const {};
 
+  /// 最近一次回 null 是不是「編碼器管線還沒吐出」（H.264），而不是畫面沒變。
+  static bool lastWasPending = false;
+
   static const MethodChannel _channel = MethodChannel('com.github.aqutter/nativeview');
 
   /// 目前平台是否需要（且支援）原生擷取。
@@ -34,7 +37,7 @@ class AqutterNativeCapture {
   /// [pixelRatio]（每個 logical 像素要幾個像素）給了就縮到那個解析度、不放大；iOS 最多 2 倍。
   /// [jpegQuality]（0 到 1）給了就在原生端壓成 JPEG 再回傳（`format` 為 `jpeg`），不給就回未壓縮的 RGBA。
   /// [skipUnchanged]（iOS、Android）：畫面與上一張完全相同時回 null，省下傳輸與網頁端解碼；回 null 也可能是這一輪擷取不到。
-  static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains, double? pixelRatio, bool skipUnchanged = false, double? jpegQuality}) async {
+  static Future<AqutterNativeFrame?> capture(Rect rect, {String? viewTypeContains, double? pixelRatio, bool skipUnchanged = false, double? jpegQuality, String? compressFormat, bool forceKeyframe = false}) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('capture', {
       'x': rect.left,
       'y': rect.top,
@@ -44,18 +47,25 @@ class AqutterNativeCapture {
       'pixelRatio': ?pixelRatio,
       if (skipUnchanged) 'skipUnchanged': true,
       'jpegQuality': ?jpegQuality,
+      'compressFormat': ?compressFormat,
+      if (forceKeyframe) 'forceKeyframe': true,
     });
     final timing = result?['timing'];
     if (timing is Map) {
       lastTimings = {for (final entry in timing.entries) '${entry.key}': (entry.value as num).toDouble()};
     }
-    if (result == null || result['unchanged'] == true) {
+    lastWasPending = result?['pending'] == true;
+    if (result == null || result['unchanged'] == true || lastWasPending) {
       return null;
     }
     return AqutterNativeFrame(
       width: result['width'] as int,
       height: result['height'] as int,
-      format: result['format'] == 'jpeg' ? AqutterNativeFormat.jpeg : AqutterNativeFormat.rgba,
+      format: switch (result['format']) {
+        'jpeg' => AqutterNativeFormat.jpeg,
+        'h264' => result['key'] == true ? AqutterNativeFormat.h264Key : AqutterNativeFormat.h264Delta,
+        _ => AqutterNativeFormat.rgba,
+      },
       payload: result['bytes'] as Uint8List,
     );
   }

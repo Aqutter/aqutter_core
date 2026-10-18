@@ -32,6 +32,11 @@ void main() {
     test('jpeg uses wire code 2', () {
       expect(AqutterNativeFormat.jpeg.wire, 2);
     });
+
+    test('h264 uses wire codes 4 (key) and 5 (delta)', () {
+      expect(AqutterNativeFormat.h264Key.wire, 4);
+      expect(AqutterNativeFormat.h264Delta.wire, 5);
+    });
   });
 
   group('host and session', () {

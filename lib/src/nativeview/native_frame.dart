@@ -9,7 +9,15 @@ enum AqutterNativeFormat {
   rgba(1),
 
   /// JPEG 壓縮（有損、不含 alpha）：移動中的畫面用它，每幀小一個數量級，網頁端也不必複製／上傳整張未壓縮像素。
-  jpeg(2);
+  jpeg(2),
+
+  // 3 保留：實測 Android 的 WebP 是軟體編碼（每幀約 300 ms），不可行，沒有採用。
+
+  /// H.264（Annex B），關鍵幀（含 SPS／PPS）。網頁端以 WebCodecs 解碼，需要安全情境（https 或 localhost）。
+  h264Key(4),
+
+  /// H.264（Annex B），非關鍵幀。
+  h264Delta(5);
 
   const AqutterNativeFormat(this.wire);
 

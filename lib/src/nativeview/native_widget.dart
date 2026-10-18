@@ -278,7 +278,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     final base = _pixelRatioFor(box.size, session.viewport);
     final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     // 定格後（_settled）以完整解析度比對；動起來的第一張也是完整解析度，之後才降
-    final full = !adaptive || _settled || _scaler.scale >= 1.0;
+    // H.264 的編碼器尺寸固定：不做自適應降解析度，也不補定格幀（串流本身就是完整解析度）
+    final full = _isH264 || !adaptive || _settled || _scaler.scale >= 1.0;
     if (!forced && _unchangedStreak >= _backoffAfter) {
       _backoffTick = (_backoffTick + 1) % _backoffEvery;
       if (_backoffTick != 0) {
@@ -298,6 +299,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       skipUnchanged: !forced && (_unchangedStreak > 0 || _compareTick++ % 4 == 0),
       // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
       jpegQuality: _movingJpegQuality,
+      compressFormat: _compressFormat,
+      forceKeyframe: forced,
     );
     final drawMs = AqutterNativeCapture.lastTimings['draw'];
     if (drawMs != null && drawMs > 300) {
@@ -314,10 +317,12 @@ class _AqutterNativeState extends State<AqutterNative> {
       await Future<void>.delayed(watch.elapsed * (1 / duty - 1));
     }
     if (frame == null) {
-      _unchangedStreak += 1;
-      _nativeUnchanged += 1;
+      if (!AqutterNativeCapture.lastWasPending) {
+        _unchangedStreak += 1;
+        _nativeUnchanged += 1;
+      }
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
-      if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
+      if (!_isH264 && adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
         frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: _settleJpegQuality);
       }
@@ -340,10 +345,15 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
+  /// 實驗：`--dart-define=AQUTTER_NATIVE_COMPRESS=jpeg|h264` 讓 Android 也壓縮（預設不壓縮）。`h264` 用硬體編碼（Android 專用，網頁端需 WebCodecs 與安全情境）。
+  static const String _compressExperiment = String.fromEnvironment('AQUTTER_NATIVE_COMPRESS');
+  String? get _compressFormat => _compressExperiment == 'h264' && !_isIos ? 'h264' : null;
+  bool get _isH264 => _compressFormat == 'h264';
+
   /// 0 以下代表明確關閉壓縮（一律傳未壓縮的 RGBA）；`null` 才依平台決定。
   double? get _movingJpegQuality {
     final quality = widget.nativeJpegQuality;
-    return quality == null ? (_isIos ? 0.85 : null) : (quality > 0 ? quality : null);
+    return quality == null ? (_isIos || _compressExperiment.isNotEmpty ? 0.85 : null) : (quality > 0 ? quality : null);
   }
 
   double? get _settleJpegQuality {
