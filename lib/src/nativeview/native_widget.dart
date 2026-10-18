@@ -360,6 +360,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       'compress': format(_movingJpegQuality),
       'settle': format(_settleJpegQuality),
       'minScale': widget.minScale,
+      'fps': widget.fps,
       'duty': duty >= 1 ? '無' : duty.toStringAsFixed(2),
     };
   }
