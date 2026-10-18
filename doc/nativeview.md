@@ -286,3 +286,7 @@ JPEG 只在 iOS 預設開啟。對照（`--dart-define=AQUTTER_MAP_BASELINE=true
 Flutter 自己畫的內容（`toImage` 路徑，不是原生擷取）快得多：全螢幕、每幀整個畫面都在變的動畫，iPad 實機 56 到 58 fps、延遲 18 到 20 ms（每幀 11 到 12 MB）；Android 平板 23 到 27 fps。所以瓶頸是原生擷取（iOS `drawHierarchy` 約 40 ms），不是 WebSocket 傳輸。
 
 網頁內的 YouTube 影片（IFrame API，1080p）與右下角的鏡像同時跑：Android 平板影片每秒前進 1.0 秒、鏡像約 50 fps；iPad 影片同樣穩定播放，鏡像 60 fps、延遲約 11 ms。iOS 預設需要使用者手勢才播放影片；殼提供 `--dart-define=AQUTTER_MEDIA_AUTOPLAY=true` 供自動化測試放行，預設關閉。
+
+### iPad 偶發的 1 秒卡頓
+
+iPad 實機「混戰」場景（隨機甩動、縮放、點擊）約每 7 到 10 輪出現一次約 1013 ms 的網頁卡頓。同一時間 Flutter 的 UI 執行緒也量到 1012 到 1015 ms 的停頓（`--dart-define=AQUTTER_NATIVE_DIAG=true` 的監看），而原生擷取沒有任何單次超過 300 ms，所以是 App 的主執行緒被其他工作擋住，不是鏡像管線造成的；懷疑是 Google Maps SDK 在密集縮放時的主執行緒工作，沒有再往下查。iOS 結束後是否還能操作，改用「原生端現算地圖中心的經緯度，拖曳前後比較」判斷（iOS 的 `moveCamera` 不更新相機回報，不能只看相機）。

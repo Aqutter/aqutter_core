@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -146,10 +147,42 @@ class _AqutterNativeState extends State<AqutterNative> {
   static const int _backoffAfter = 30;
   static const int _backoffEvery = 6;
 
+  /// 以 `--dart-define=AQUTTER_NATIVE_DIAG=true` 開啟 UI 執行緒停頓監看（每 50 ms 一次計時器，預設關閉）。
+  static const bool _diagnostics = bool.fromEnvironment('AQUTTER_NATIVE_DIAG');
+
+  Timer? _stallTimer;
+  final Stopwatch _stallClock = Stopwatch()..start();
+  int _stallLastMs = 0;
+
+  /// 除錯：量 Flutter 的 UI 執行緒有沒有被卡住（計時器每 50 ms 一次，實際間隔明顯變長就是被擋住了）。
+  /// 超過 150 ms 的停頓記在 `session.debug['uiStalls']`（最近 30 筆 `{at: epoch ms, ms}`）。
+  void _startStallWatch() {
+    if (!_diagnostics) {
+      return;
+    }
+    _stallTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      final now = _stallClock.elapsedMilliseconds;
+      final gap = now - _stallLastMs;
+      _stallLastMs = now;
+      if (gap > 150) {
+        final session = _session;
+        if (session != null) {
+          final stalls = (session.debug['uiStalls'] as List<Object?>?) ?? <Object?>[];
+          stalls.add({'at': DateTime.now().millisecondsSinceEpoch, 'ms': gap});
+          if (stalls.length > 30) {
+            stalls.removeAt(0);
+          }
+          session.debug['uiStalls'] = stalls;
+        }
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _register();
+    _startStallWatch();
   }
 
   @override
@@ -249,6 +282,16 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
       jpegQuality: _movingJpegQuality,
     );
+    final drawMs = AqutterNativeCapture.lastTimings['draw'];
+    if (drawMs != null && drawMs > 300) {
+      // 除錯：原生擷取單次超過 300 ms（可能擋住整個主執行緒）
+      final slow = (session.debug['slowDraws'] as List<Object?>?) ?? <Object?>[];
+      slow.add({'at': DateTime.now().millisecondsSinceEpoch, 'ms': drawMs.round(), 'total': watch.elapsedMilliseconds});
+      if (slow.length > 30) {
+        slow.removeAt(0);
+      }
+      session.debug['slowDraws'] = slow;
+    }
     if (duty != null && duty > 0 && duty < 1) {
       // 讓出主執行緒：觸控與網頁的繪製才跟得上
       await Future<void>.delayed(watch.elapsed * (1 / duty - 1));
@@ -387,6 +430,7 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   @override
   void dispose() {
+    _stallTimer?.cancel();
     _unregister();
     super.dispose();
   }
