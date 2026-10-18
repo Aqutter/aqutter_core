@@ -258,7 +258,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 ## 原生擷取的 JPEG 幀與滿版地圖壓力測試
 
-原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`，預設 0.7；`null` 關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀永遠是未壓縮的 RGBA，所以靜止畫面無損。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
+原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`，預設 0.7；`null` 關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀用 `nativeSettleJpegQuality`（預設 0.92，接近無損；`null` 才傳未壓縮的 RGBA，滿版時一張 27 MB 以上，Android 平板實測會讓接著的操作多卡約 0.4 秒）。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
 
 iOS 的原生擷取各階段耗時隨結果回傳（`draw`、`compare`、`encode`，毫秒），可從 plugin 的診斷讀到。iPad 模擬器滿版地圖實測：`drawHierarchy` 約 75 到 85 ms，與解析度幾乎無關（0.25 倍與 0.5 倍一樣），是這條管線的固定成本；比對 0.2 到 0.9 ms，JPEG 編碼 3 到 14 ms。`afterScreenUpdates: false` 只快約一成、幀率沒有改善，沒有採用。模擬器是軟體渲染，實機的數字要另外量。
 
@@ -267,3 +267,5 @@ demo-app 的 `map.html` 是滿版地圖加壓力測試：用合成的指標事�
 ### Android 實機（平板，滿版地圖）
 
 壓力測試實測：修正前 0 fps——滿版時目標區域與 Flutter 自己的（滿版）繪圖表面一樣大，原生擷取挑到後者，`PixelCopy` 回 `ERROR_SOURCE_NO_DATA`；現在有 `TextureView` 與目標重疊就優先用它，沒有才退回 `SurfaceView`。修正後：甩動、繞圈、雙指縮放、連續張合、雙擊穿插與混戰各場景 12 到 23 fps，每幀 59 到 150 KB（JPEG），畫面延遲約 15 到 20 ms，幀間隔 p95 約 70 到 110 ms。加上 Android 的 `skipUnchanged` 之後，手勢結束後約 0.6 到 1 秒就不再送幀（之前靜止時仍持續約 24 fps）。
+
+雙擊放大場景的幀間隔最大值（約 560 ms）是壓力測試每次點擊之間刻意等的 0.5 秒：地圖沒在動，所以 `skipUnchanged` 不送幀，不是卡頓。

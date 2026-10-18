@@ -36,6 +36,7 @@ class AqutterNative extends StatefulWidget {
     this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeJpegQuality = 0.7,
+    this.nativeSettleJpegQuality = 0.92,
     this.nativeViewTypeContains,
     this.matchViewportAspect = false,
     this.injectPointers = false,
@@ -77,8 +78,11 @@ class AqutterNative extends StatefulWidget {
   final bool nativeCapture;
 
   /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null` 一律傳未壓縮的 RGBA。
-  /// 停下來補的定格幀永遠是未壓縮的，所以靜止的畫面仍然無損。
+  /// 停下來補的定格幀用 [nativeSettleJpegQuality]（預設 0.92，接近無損）。
   final double? nativeJpegQuality;
+
+  /// 畫面停下來補的定格幀的 JPEG 品質；`null` 傳未壓縮的 RGBA（無損，但滿版時一張要幾十 MB，傳輸與解碼會卡住接著的操作）。
+  final double? nativeSettleJpegQuality;
 
   /// 原生擷取時，優先直接擷取類名含此字串的 view（例如 `GMSMapView`）。
   final String? nativeViewTypeContains;
@@ -240,7 +244,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
       if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
-        frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base);
+        frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: widget.nativeSettleJpegQuality);
       }
       _publishNativeDebug(session);
       return frame;
