@@ -40,9 +40,10 @@ AqutterNative(
 
 | fmt | payload |
 |---|---|
-| `0` | PNG |
 | `1` | 未壓縮 straight（非預乘）RGBA，`w × h × 4` bytes |
-| `2` | JPEG（有損、不含 alpha） |
+| `2` | JPEG（有損、不含 alpha），只用於原生擷取（`nativeJpegQuality`） |
+
+代碼 0（PNG）、3（WebP）、4／5（H.264）曾經實驗過、已移除（網頁端收到會丟棄）：PNG 與 WebP 的編碼太慢，H.264 的幀率沒有提升，實測見「Android 的其他壓縮」一節。
 
 ## 訊息格式（網頁 → Dart，JSON 文字）
 
@@ -87,7 +88,7 @@ AqutterNative(
 | 長寬比對齊 | `matchViewportAspect: true`（預設關閉）：子畫面在可用空間內置中，長寬比改成與網頁元素一致。全螢幕的 widget 鏡像到小方框時，不開會多擷取被 `fit` 裁掉的部分、幀也較大；開了之後每個像素都對應網頁上看得到的內容。網頁回報尺寸前維持填滿。 |
 | 預設 60 fps | `AqutterNative.fps` 與 `AqutterNativeSession.fps` 預設 60（上限 120）。內容沒重繪、網頁不可見、對方來不及處理時實際幀率會自動更低。 |
 | 看不到就暫停 | 所有連線都回報 `visibility: false`（元素捲出視窗、`display: none`、分頁隱藏）時，工作階段停止擷取與送幀；任何一個連線重新看得到時立刻補一幀。新連線預設為看得到。 |
-| 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；每一幀在收到時就已回 `ack`（不等畫完，否則確認的往返會多出一個繪製週期，卡住原生端的送幀）。PNG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
+| 只畫最新一幀 | 網頁在每個繪製週期只畫最新收到的一幀；每一幀在收到時就已回 `ack`（不等畫完，否則確認的往返會多出一個繪製週期，卡住原生端的送幀）。JPEG 非同步解碼完成時若已有更新的幀開始繪製就放棄舊的，不會讓舊幀蓋掉新幀。 |
 | 不複製像素 | 網頁端 RGBA 的 `ImageData` 直接包住收到的緩衝區。 |
 
 ## 量測
@@ -140,7 +141,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 ## 現況與限制
 
-- 傳輸為未壓縮 RGBA / PNG；H.264 + WebCodecs 管線尚未實作。
+- 傳輸為未壓縮 RGBA（預設，所有平台）或 JPEG（只用於原生擷取，`nativeJpegQuality`）；PNG、WebP、H.264 實驗過、已移除。
 - 已驗證：macOS、Android 模擬器、iOS 模擬器上鏡像 Flutter widget（`RepaintBoundary` 路徑）、手勢回控。
 - 尚未驗證：iOS `drawHierarchy` 與 Android PlatformView 的擷取（需要地圖之類的 PlatformView）、實體裝置。
 
@@ -167,12 +168,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 - 元素接近全螢幕或 4K，原始像素的記憶體頻寬與耗電成為問題時。
 - 目標是降低手機的耗電與發熱，而不是提高 fps。
 
-若要做，建議的設計：
-
-1. 協定新增 `fmt=3`（H.264 Annex B；`2` 已用於 JPEG）；網頁在連線時以 `capabilities` 告知是否支援 WebCodecs，不支援就維持 RGBA。
-2. 只在 Android（MediaCodec）與 iOS／macOS（VideoToolbox）實作；Windows 與 Linux 維持 RGBA（編碼器要另外整合，且 WPE 的 WebCodecs 支援未驗證）。
-3. 現有的「停止變動後補一幀完整解析度」改成補一幀無損（RGBA 或 PNG），文字邊緣不會殘留壓縮痕跡。
-4. 新連線、尺寸改變時強制關鍵幀；寬高補成偶數，網頁端裁回。
+（已經實作並實測、程式碼已移除：Android 硬體編碼的幀率與未壓縮相同，因為瓶頸在擷取，見「Android 的其他壓縮：WebP 與 H.264」一節。）
 
 在那之前，更值得先做的是降低讀回的成本（目前 Android 的真正瓶頸），例如只讀回變動區域，或評估能否避開 CPU 讀回。
 
@@ -243,7 +239,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 ## 自訂畫面來源（`captureOverride`）
 
-`RepaintBoundary.toImage` **擷取不到 Texture 與 PlatformView 的內容**：實測 Android 上的 Google 地圖（texture 模式）鏡像出來是完全透明的，連標記都沒有。這類內容若有自己的快照 API，用 `AqutterNative(captureOverride: …)` 把快照包成 `AqutterNativeFrame` 回傳（PNG 位元組可以直接當 `format: png` 的 payload）；擷取迴圈改成依 `fps` 輪詢，回傳 null 代表這一輪沒有新畫面。範例：[aqutter-plugin-google-maps](https://github.com/Aqutter/aqutter-plugin-google-maps) 用 `GoogleMapController.takeSnapshot()`。
+`RepaintBoundary.toImage` **擷取不到 Texture 與 PlatformView 的內容**：實測 Android 上的 Google 地圖（texture 模式）鏡像出來是完全透明的，連標記都沒有。這類內容若有自己的快照 API，用 `AqutterNative(captureOverride: …)` 把快照包成 `AqutterNativeFrame`（`format: rgba` 的未壓縮像素，或 `format: jpeg` 的 JPEG 位元組）回傳；擷取迴圈改成依 `fps` 輪詢，回傳 null 代表這一輪沒有新畫面。範例：[aqutter-plugin-google-maps](https://github.com/Aqutter/aqutter-plugin-google-maps) 用 `GoogleMapController.takeSnapshot()`。
 
 > 上文「Android 上的 PlatformView 可用 `RepaintBoundary` 擷取」的說法是錯的：它從未被驗證，現在實測證明擷取不到。
 
@@ -258,7 +254,7 @@ debug 版在持續重繪時 `debugNeedsPaint` 常落在「已標記、尚未繪�
 
 ## 原生擷取的 JPEG 幀與滿版地圖壓力測試
 
-原生擷取（`nativeCapture: true`）時，畫面在動的幀可在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`；`null`（預設）依平台：iOS 0.85、Android 不壓縮；0 以下明確關閉）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀用 `nativeSettleJpegQuality`（預設 0.92，接近無損；`null` 才傳未壓縮的 RGBA，滿版時一張 27 MB 以上，Android 平板實測會讓接著的操作多卡約 0.4 秒）。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
+原生擷取（`nativeCapture: true`）時，畫面在動的幀可選擇在原生端壓成 JPEG（`AqutterNative.nativeJpegQuality`；`null` 或 0 以下（預設）不壓縮，所有平台都傳未壓縮的 RGBA）：每幀小一個數量級（iOS 模擬器滿版地圖：5.8 MB 的 RGBA 變 0.1 到 0.4 MB），傳輸與網頁端解碼都省。畫面停下來補的定格幀用 `nativeSettleJpegQuality`（預設 0.92，接近無損；`null` 才傳未壓縮的 RGBA，滿版時一張 27 MB 以上，Android 平板實測會讓接著的操作多卡約 0.4 秒）。iOS 與 Android 都支援；`skipUnchanged`（畫面與上一張相同就不回傳像素）iOS 與 Android 都有。
 
 iOS 的原生擷取各階段耗時隨結果回傳（`draw`、`compare`、`encode`，毫秒），可從 plugin 的診斷讀到。iPad 模擬器滿版地圖實測：`drawHierarchy` 約 75 到 85 ms，與解析度幾乎無關（0.25 倍與 0.5 倍一樣），是這條管線的固定成本；比對 0.2 到 0.9 ms，JPEG 編碼 3 到 14 ms。`afterScreenUpdates: false` 只快約一成、幀率沒有改善，沒有採用。模擬器是軟體渲染，實機的數字要另外量。
 
@@ -278,7 +274,7 @@ iOS 的原生擷取在主執行緒，一次約 40 ms；連續擷取會把主執�
 
 ### 各平台的預設與 A/B 對照（實機，滿版地圖，3 輪平均）
 
-JPEG 只在 iOS 預設開啟。對照（`--dart-define=AQUTTER_MAP_BASELINE=true` 會關掉壓縮與占用上限）：
+JPEG 預設不開（所有平台，後來的雙機對照見下面「乾淨的 RGBA 對 JPEG 對照」一節；iOS 原本預設是 JPEG，現已改為 RGBA）。以下是當時的對照（`--dart-define=AQUTTER_MAP_BASELINE=true` 會關掉占用上限）：
 
 - iPad：改進前 5 到 9 fps、幀間隔 p95 250 到 770 ms、JS 卡頓 400 到 1100 ms、每幀 3.8 到 9.4 MB；現在 9 到 11 fps、p95 150 到 175 ms、卡頓約 100 ms、每幀 0.19 到 0.5 MB。
 - Android 平板：未壓縮 RGBA（現在的預設）13.5 到 17.6 fps、延遲 63 到 74 ms；JPEG 0.85 只有 8.6 到 14 fps（軟體編碼每幀 20 到 30 ms，比傳 7 MB 還慢）。
@@ -337,6 +333,8 @@ Android 平板實測（同一個建置，執行中改屬性，每個設定量 20
 | WebP 0.85 | 2.9 到 4.8 | 125 到 225 ms | 120 到 330 KB | 軟體編碼每幀約 300 ms，不可行，已移除 |
 | H.264（硬體編碼，12 Mbps） | 13 到 16 | 61 到 76 ms | 65 到 258 KB | 幀率與未壓縮相同，每幀小 30 到 100 倍 |
 
+（以下 H.264 的實驗程式碼已從 repo 移除，保留結果供參考。）
+
 - H.264 實作：`AqutterH264Encoder`（`MediaCodec` Surface 輸入、輸出走非同步回呼，關鍵幀前補 SPS／PPS）；協定 `fmt=4`（關鍵幀）、`fmt=5`（非關鍵幀）；網頁端用 WebCodecs `VideoDecoder`（`avc: {format: 'annexb'}`），需要安全情境（https 或 `localhost`，Android 的 `localhost` 符合）。以 `--dart-define=AQUTTER_NATIVE_COMPRESS=h264` 在 Android 開啟，預設關閉。硬體編碼本身只要 5 到 7 ms，幀率沒有提升是因為瓶頸在擷取（約 25 到 40 ms 的 `getBitmap`）；它的價值是頻寬（例如遠端或較慢的傳輸）。
 - **H.264 的每一幀都必須依序送到解碼器**：網頁端「只畫最新一幀」的合併、原生端「在途幀數達上限就丟幀」的流量控制對它都不能用，丟任何一幀後面的幀就解不出來，畫面會破碎或整片綠色。實作上 H.264 幀在網頁端收到就直接解碼、原生端不丟 H.264 幀（來不及時是擷取端不再擷取）。第一版沒處理，畫面破圖嚴重。
 - 第一版 H.264 還有兩個效能問題：在主執行緒同步等編碼器輸出（每次最多 40 ms）、每幀多複製 7 MB 未壓縮像素做比對；改成非同步輸出、只在需要比對「畫面沒變」時才複製之後，幀率從 4 到 9 升到 13 到 16。
@@ -359,3 +357,9 @@ Android 平板實測（同一個建置，執行中改屬性，每個設定量 20
 - **iPad 的 RGBA 比 JPEG 快約 33%**（13.2 對 9.9 fps）。先前「iPad 用 RGBA 比較差」的印象來自「改進前」基準：它同時關掉了壓縮、定格幀壓縮與主執行緒占用上限，iPad 當時的 1 秒卡頓與低幀率主要是缺少占用上限造成的，不是 RGBA。代價是每幀 4 MB 對 344 KB、延遲高約 8 ms、21 個回合裡出現 2 次超過 0.5 秒的停頓（JPEG 沒有）。iOS 預設目前仍是 JPEG。
 - **auto 在兩個平台、兩種格式都沒有提升幀率**，只把延遲降了一些，Android 的 RGBA 還多出長停頓。auto 選到的值在各場景間不固定。
 - 兩個平台上，每格的幀率範圍都很寬（例如 Android RGBA 11.6 到 20.3），不同場景之間差別比格與格之間的差別還大。
+
+### 現行預設（RGBA）
+
+- 所有平台預設傳未壓縮的 RGBA；JPEG 要用 `AqutterNative(nativeJpegQuality: …)` 明確開啟（0.85 是實測用的值）。依據是上面的雙機對照：iPad RGBA 13.2 fps 對 JPEG 9.9 fps、Android 平板 15.8 對 11.6 fps；代價是每幀大很多（iPad 約 4 MB、Android 約 7 MB），頻寬或記憶體受限時才值得開 JPEG。
+- iOS 的主執行緒占用上限預設 0.7（`nativeMaxDuty`）；在途幀數預設 3，`max-in-flight` 可每個鏡像各自設定。
+- 在途幀數 2 與 3 在兩個平台上幾乎沒有差別（Android 15.1 對 14.7 fps、iPad 13.0 對 12.8 fps，在量測波動之內）。

@@ -1,23 +1,15 @@
 import 'dart:typed_data';
 
 /// 幀的像素格式。
+///
+/// 線上格式代碼 0（PNG）、3（WebP）、4／5（H.264）曾經實驗過、已移除：PNG 與 WebP 的編碼太慢，H.264 的幀率沒有提升
+/// （瓶頸在擷取）。細節與實測數字見 `doc/nativeview.md`。
 enum AqutterNativeFormat {
-  /// PNG 壓縮（頻寬小、編碼耗時）。
-  png(0),
-
-  /// 未壓縮的 straight（非預乘）RGBA，每像素 4 bytes。
+  /// 未壓縮的 straight（非預乘）RGBA，每像素 4 bytes。預設。
   rgba(1),
 
-  /// JPEG 壓縮（有損、不含 alpha）：移動中的畫面用它，每幀小一個數量級，網頁端也不必複製／上傳整張未壓縮像素。
-  jpeg(2),
-
-  // 3 保留：實測 Android 的 WebP 是軟體編碼（每幀約 300 ms），不可行，沒有採用。
-
-  /// H.264（Annex B），關鍵幀（含 SPS／PPS）。網頁端以 WebCodecs 解碼，需要安全情境（https 或 localhost）。
-  h264Key(4),
-
-  /// H.264（Annex B），非關鍵幀。
-  h264Delta(5);
+  /// JPEG 壓縮（有損、不含 alpha），只用於原生擷取（`AqutterNative.nativeJpegQuality`）：每幀小一個數量級。
+  jpeg(2);
 
   const AqutterNativeFormat(this.wire);
 

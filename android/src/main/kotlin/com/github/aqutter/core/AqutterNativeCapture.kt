@@ -41,8 +41,6 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
 
   private val mainHandler = Handler(Looper.getMainLooper())
 
-  private var h264: AqutterH264Encoder? = null
-
   /** 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。 */
   private var lastBytes: ByteArray? = null
   private var lastWidth = 0
@@ -87,9 +85,6 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
 
     // 有給品質就壓成 JPEG：移動中的畫面每幀小一個數量級，傳輸與網頁端解碼都省
     val jpegQuality = call.argument<Double>("jpegQuality")
-    // H.264：Surface 輸入的硬體編碼；沒有輸出（編碼器管線還沒吐出）時回 null
-    val useH264 = call.argument<String>("compressFormat") == "h264"
-    val forceKey = call.argument<Boolean>("forceKeyframe") ?: false
     // 畫面與上一張完全相同時不回傳像素：靜止的地圖不再持續占用傳輸與網頁端解碼
     val skipUnchanged = call.argument<Boolean>("skipUnchanged") ?: false
 
@@ -99,54 +94,19 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
         return
       }
       val grabbedNs = System.nanoTime()
-      // H.264 不需要未壓縮的像素：只有要比對「畫面沒變」時才複製出來（省下每幀約 7 MB 的複製）
-      val needRaw = !useH264 || skipUnchanged
-      val bytes = if (needRaw) {
-        val raw = ByteBuffer.allocate(bitmap.byteCount)
-        bitmap.copyPixelsToBuffer(raw)
-        raw.array()
-      }
-      else {
-        ByteArray(0)
-      }
+      val raw = ByteBuffer.allocate(bitmap.byteCount)
+      bitmap.copyPixelsToBuffer(raw)
+      val bytes = raw.array()
       val copiedNs = System.nanoTime()
       fun ms(from: Long, to: Long) = (to - from) / 1_000_000.0
-      if (needRaw && skipUnchanged && lastWidth == bitmap.width && lastHeight == bitmap.height && lastBytes?.contentEquals(bytes) == true) {
+      if (skipUnchanged && lastWidth == bitmap.width && lastHeight == bitmap.height && lastBytes?.contentEquals(bytes) == true) {
         bitmap.recycle()
         result.success(mapOf("unchanged" to true, "timing" to mapOf("draw" to ms(startNs, grabbedNs), "compare" to ms(grabbedNs, System.nanoTime()))))
         return
       }
-      if (needRaw) {
-        lastBytes = bytes
-        lastWidth = bitmap.width
-        lastHeight = bitmap.height
-      }
-      if (useH264) {
-        val evenWidth = bitmap.width and 1.inv()
-        val evenHeight = bitmap.height and 1.inv()
-        var encoder = h264
-        var needKey = forceKey
-        if (encoder == null || encoder.width != evenWidth || encoder.height != evenHeight) {
-          encoder?.release()
-          encoder = AqutterH264Encoder(evenWidth, evenHeight, 12_000_000, 30)
-          h264 = encoder
-          needKey = true
-        }
-        val encodeStartNs = System.nanoTime()
-        val output = encoder.encode(bitmap, needKey)
-        val encodedNs = System.nanoTime()
-        bitmap.recycle()
-        if (output == null) {
-          result.success(mapOf("pending" to true)) // 編碼器管線還沒吐出（不是畫面沒變）
-        }
-        else {
-          result.success(mapOf(
-            "width" to evenWidth, "height" to evenHeight, "format" to "h264", "key" to output.isKey, "bytes" to output.bytes,
-            "timing" to mapOf("draw" to ms(startNs, grabbedNs), "compare" to ms(grabbedNs, copiedNs), "encode" to ms(encodeStartNs, encodedNs)),
-          ))
-        }
-        return
-      }
+      lastBytes = bytes
+      lastWidth = bitmap.width
+      lastHeight = bitmap.height
       if (jpegQuality != null) {
         val out = ByteArrayOutputStream(bitmap.byteCount / 8)
         bitmap.compress(Bitmap.CompressFormat.JPEG, (jpegQuality * 100).roundToInt().coerceIn(1, 100), out)

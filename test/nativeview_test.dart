@@ -25,17 +25,9 @@ void main() {
       expect(view.getFloat64(16, Endian.little), 1700000000000);
     });
 
-    test('png uses wire code 0', () {
-      expect(AqutterNativeFormat.png.wire, 0);
-    });
-
-    test('jpeg uses wire code 2', () {
+    test('rgba uses wire code 1 and jpeg wire code 2', () {
+      expect(AqutterNativeFormat.rgba.wire, 1);
       expect(AqutterNativeFormat.jpeg.wire, 2);
-    });
-
-    test('h264 uses wire codes 4 (key) and 5 (delta)', () {
-      expect(AqutterNativeFormat.h264Key.wire, 4);
-      expect(AqutterNativeFormat.h264Delta.wire, 5);
     });
   });
 

@@ -189,9 +189,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
   void _broadcast(String id, Uint8List header, Uint8List payload) {
     for (final socket in List<WebSocket>.of(_clients[id] ?? const <WebSocket>{})) {
       final pending = _inFlight[socket] ?? 0;
-      // H.264（fmt 4、5）不能丟幀：丟掉任何一幀，後面的幀就解不出來。擷取端在「來不及」時本來就不再擷取，這裡只會多出編碼器管線裡的幾幀
-      final isVideo = header.length >= 12 && ByteData.view(header.buffer, header.offsetInBytes).getUint32(8, Endian.little) >= 4;
-      if (!isVideo && pending >= (_sessions[id]?.maxInFlight ?? aqutterNativeMaxInFlight)) {
+      if (pending >= (_sessions[id]?.maxInFlight ?? aqutterNativeMaxInFlight)) {
         continue; // 這個連線還沒消化完，丟掉這一幀而不是堆在記憶體
       }
       _inFlight[socket] = pending + 1;

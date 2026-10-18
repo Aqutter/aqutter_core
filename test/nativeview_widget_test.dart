@@ -108,7 +108,7 @@ void main() {
     var calls = 0;
     Future<AqutterNativeFrame?> snapshot() async {
       calls += 1;
-      return AqutterNativeFrame(width: 2, height: 2, format: AqutterNativeFormat.png, payload: Uint8List.fromList(const [1, 2, 3]));
+      return AqutterNativeFrame(width: 2, height: 2, format: AqutterNativeFormat.rgba, payload: Uint8List.fromList(const [1, 2, 3]));
     }
 
     await tester.pumpWidget(host(AqutterNative(

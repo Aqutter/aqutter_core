@@ -34,7 +34,6 @@ class AqutterNative extends StatefulWidget {
     this.adaptive = AqutterNativeAdaptive.off,
     this.minScale = 0.5,
     this.settleDelay = const Duration(milliseconds: 250),
-    this.format = AqutterNativeFormat.rgba,
     this.nativeCapture = false,
     this.nativeJpegQuality,
     this.nativeSettleJpegQuality,
@@ -76,18 +75,18 @@ class AqutterNative extends StatefulWidget {
   /// 以 `RepaintBoundary` 擷取時才有效；[nativeCapture]（PlatformView）的內容變化 Flutter 看不到，
   /// 一律每輪擷取。內容若是以 Flutter 之外的方式改變（例如 texture 外部更新），請設為 false。
   final bool skipUnchanged;
-  final AqutterNativeFormat format;
 
   /// 以原生方式擷取（Texture 與 PlatformView 用，如地圖）：iOS 用 `drawHierarchy`，Android 用 `PixelCopy`；其他平台忽略。
   final bool nativeCapture;
 
-  /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null`（預設）依平台決定：iOS 用 0.85、其他平台傳未壓縮的 RGBA；0 以下明確關閉壓縮。
-  /// Android 的 JPEG 是軟體編碼（每幀約 20 到 30 ms），平板實測比傳 7 MB 未壓縮的幀還慢（9 到 14 fps 對 14 到 18 fps），
-  /// 而且未壓縮沒有壓縮痕跡；iOS 的 JPEG 是硬體編碼（約 1 到 6 ms），並讓每幀從數 MB 降到數百 KB，主執行緒才不會被擠爆。
-  /// 停下來補的定格幀用 [nativeSettleJpegQuality]（預設同樣依平台：iOS 0.92，其他平台未壓縮）。
+  /// 原生擷取時，畫面在動的幀壓成 JPEG 的品質（0 到 1）；`null` 或 0 以下（預設）不壓縮，所有平台都傳未壓縮的 RGBA。
+  ///
+  /// 預設不壓縮的原因（滿版地圖實測）：iPad 的 RGBA 比 JPEG 快約 33%（13.2 對 9.9 fps）、Android 平板快約 25 到 35%
+  /// （15.8 對 11.6 fps）。每幀大很多（iPad 約 4 MB、Android 約 7 MB 對 JPEG 的 350 到 390 KB），傳輸在本機上不貴；
+  /// JPEG 的編碼與網頁端解碼反而成了額外的成本（Android 是軟體編碼，每幀 20 到 30 ms）。頻寬或記憶體受限時才值得開。
   final double? nativeJpegQuality;
 
-  /// 畫面停下來補的定格幀的 JPEG 品質；`null`（預設）依平台決定：iOS 0.92、其他平台傳未壓縮的 RGBA。
+  /// 畫面停下來補的定格幀的 JPEG 品質；`null` 或 0 以下（預設）不壓縮。
   final double? nativeSettleJpegQuality;
 
   /// 原生擷取佔用主執行緒的上限（0 到 1，擷取耗時占的比例）。擷取在主執行緒做（iOS `drawHierarchy` 一次約 40 ms），
@@ -200,7 +199,6 @@ class _AqutterNativeState extends State<AqutterNative> {
     super.didUpdateWidget(oldWidget);
     final changed = oldWidget.sessionId != widget.sessionId
         || oldWidget.fps != widget.fps
-        || oldWidget.format != widget.format
         || oldWidget.pixelRatio != widget.pixelRatio
         || oldWidget.nativeCapture != widget.nativeCapture
         || oldWidget.adaptive != widget.adaptive
@@ -278,8 +276,7 @@ class _AqutterNativeState extends State<AqutterNative> {
     final base = _pixelRatioFor(box.size, session.viewport);
     final adaptive = widget.adaptive == AqutterNativeAdaptive.resolution;
     // 定格後（_settled）以完整解析度比對；動起來的第一張也是完整解析度，之後才降
-    // H.264 的編碼器尺寸固定：不做自適應降解析度，也不補定格幀（串流本身就是完整解析度）
-    final full = _isH264 || !adaptive || _settled || _scaler.scale >= 1.0;
+    final full = !adaptive || _settled || _scaler.scale >= 1.0;
     if (!forced && _unchangedStreak >= _backoffAfter) {
       _backoffTick = (_backoffTick + 1) % _backoffEvery;
       if (_backoffTick != 0) {
@@ -297,10 +294,8 @@ class _AqutterNativeState extends State<AqutterNative> {
       // 網頁剛連上、重新看得到、尺寸變了（forced）時，一定要送一張，否則靜止的畫面永遠到不了網頁
       // 比對要掃過整張像素（Android 平板約 10 到 15 ms）：連續在動時每 4 幀才比一次，確認靜止後才每幀比
       skipUnchanged: !forced && (_unchangedStreak > 0 || _compareTick++ % 4 == 0),
-      // 動的時候壓成 JPEG（小一個數量級）；定格幀（full 且已停下）走下面無損的那一張
+      // 預設傳未壓縮的 RGBA；[nativeJpegQuality] 給了才在原生端壓成 JPEG
       jpegQuality: _movingJpegQuality,
-      compressFormat: _compressFormat,
-      forceKeyframe: forced,
     );
     final drawMs = AqutterNativeCapture.lastTimings['draw'];
     if (drawMs != null && drawMs > 300) {
@@ -317,12 +312,10 @@ class _AqutterNativeState extends State<AqutterNative> {
       await Future<void>.delayed(watch.elapsed * (1 / duty - 1));
     }
     if (frame == null) {
-      if (!AqutterNativeCapture.lastWasPending) {
-        _unchangedStreak += 1;
-        _nativeUnchanged += 1;
-      }
+      _unchangedStreak += 1;
+      _nativeUnchanged += 1;
       // 畫面沒變（或這輪擷取不到）：解析度被降過就補一張完整解析度的定格幀
-      if (!_isH264 && adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
+      if (adaptive && !_settled && _scaler.scale < 1.0 && _sinceChange.elapsed >= widget.settleDelay) {
         _settled = true;
         frame = await AqutterNativeCapture.capture(rect, viewTypeContains: widget.nativeViewTypeContains, pixelRatio: base, jpegQuality: _settleJpegQuality);
       }
@@ -345,27 +338,16 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
-  /// 實驗：`--dart-define=AQUTTER_NATIVE_COMPRESS=jpeg|h264|none`：`jpeg` 讓 Android 也壓縮（預設不壓縮）；`h264` 用硬體編碼（Android 專用，網頁端需 WebCodecs 與安全情境）；
-  /// `none` 讓所有平台（含 iOS）都傳未壓縮的 RGBA，量測壓縮的影響用。
-  static const String _compressExperiment = String.fromEnvironment('AQUTTER_NATIVE_COMPRESS');
-  String? get _compressFormat => _compressExperiment == 'h264' && !_isIos ? 'h264' : null;
-  bool get _isH264 => _compressFormat == 'h264';
-
-  /// 0 以下代表明確關閉壓縮（一律傳未壓縮的 RGBA）；`null` 才依平台決定。
+  /// 移動中的幀壓成 JPEG 的品質；`null` 或 0 以下是不壓縮（預設，所有平台都傳未壓縮的 RGBA）。
   double? get _movingJpegQuality {
-    if (_compressExperiment == 'none') {
-      return null;
-    }
     final quality = widget.nativeJpegQuality;
-    return quality == null ? (_isIos || _compressExperiment.isNotEmpty ? 0.85 : null) : (quality > 0 ? quality : null);
+    return quality != null && quality > 0 ? quality : null;
   }
 
+  /// 停下來補的定格幀的 JPEG 品質；規則同 [_movingJpegQuality]。
   double? get _settleJpegQuality {
-    if (_compressExperiment == 'none') {
-      return null;
-    }
     final quality = widget.nativeSettleJpegQuality;
-    return quality == null ? (_isIos ? 0.92 : null) : (quality > 0 ? quality : null);
+    return quality != null && quality > 0 ? quality : null;
   }
 
   /// 目前的傳輸模式（顯示用）：移動中的格式、定格幀格式、解析度下限、主執行緒占用上限。
@@ -373,8 +355,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     String format(double? quality) => quality == null ? 'RGBA' : 'JPEG ${quality.toStringAsFixed(2)}';
     final duty = widget.nativeMaxDuty ?? (_isIos ? 0.7 : null);
     return {
-      'compress': _isH264 ? 'H.264' : format(_movingJpegQuality),
-      'settle': _isH264 ? '—' : format(_settleJpegQuality),
+      'compress': format(_movingJpegQuality),
+      'settle': format(_settleJpegQuality),
       'minScale': widget.minScale,
       'duty': duty == null || duty >= 1 ? '無' : duty.toStringAsFixed(2),
     };
@@ -438,11 +420,8 @@ class _AqutterNativeState extends State<AqutterNative> {
     final image = await box.toImage(pixelRatio: (_pixelRatioFor(box.size, session.viewport) * scale).clamp(0.25, widget.maxPixelRatio));
     session.stats.add('toImage', imageWatch);
     try {
-      final byteFormat = widget.format == AqutterNativeFormat.png
-          ? ui.ImageByteFormat.png
-          : ui.ImageByteFormat.rawStraightRgba;
       final readWatch = Stopwatch()..start();
-      final data = await image.toByteData(format: byteFormat);
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
       session.stats.add('toByteData', readWatch);
       if (data == null) {
         return null;
@@ -453,7 +432,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       return AqutterNativeFrame(
         width: image.width,
         height: image.height,
-        format: widget.format,
+        format: AqutterNativeFormat.rgba,
         payload: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
       );
     }
