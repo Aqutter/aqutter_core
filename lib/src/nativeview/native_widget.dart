@@ -345,24 +345,44 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
-  /// 實驗：`--dart-define=AQUTTER_NATIVE_COMPRESS=jpeg|h264` 讓 Android 也壓縮（預設不壓縮）。`h264` 用硬體編碼（Android 專用，網頁端需 WebCodecs 與安全情境）。
+  /// 實驗：`--dart-define=AQUTTER_NATIVE_COMPRESS=jpeg|h264|none`：`jpeg` 讓 Android 也壓縮（預設不壓縮）；`h264` 用硬體編碼（Android 專用，網頁端需 WebCodecs 與安全情境）；
+  /// `none` 讓所有平台（含 iOS）都傳未壓縮的 RGBA，量測壓縮的影響用。
   static const String _compressExperiment = String.fromEnvironment('AQUTTER_NATIVE_COMPRESS');
   String? get _compressFormat => _compressExperiment == 'h264' && !_isIos ? 'h264' : null;
   bool get _isH264 => _compressFormat == 'h264';
 
   /// 0 以下代表明確關閉壓縮（一律傳未壓縮的 RGBA）；`null` 才依平台決定。
   double? get _movingJpegQuality {
+    if (_compressExperiment == 'none') {
+      return null;
+    }
     final quality = widget.nativeJpegQuality;
     return quality == null ? (_isIos || _compressExperiment.isNotEmpty ? 0.85 : null) : (quality > 0 ? quality : null);
   }
 
   double? get _settleJpegQuality {
+    if (_compressExperiment == 'none') {
+      return null;
+    }
     final quality = widget.nativeSettleJpegQuality;
     return quality == null ? (_isIos ? 0.92 : null) : (quality > 0 ? quality : null);
   }
 
+  /// 目前的傳輸模式（顯示用）：移動中的格式、定格幀格式、解析度下限、主執行緒占用上限。
+  Map<String, Object?> get _modeDescription {
+    String format(double? quality) => quality == null ? 'RGBA' : 'JPEG ${quality.toStringAsFixed(2)}';
+    final duty = widget.nativeMaxDuty ?? (_isIos ? 0.7 : null);
+    return {
+      'compress': _isH264 ? 'H.264' : format(_movingJpegQuality),
+      'settle': _isH264 ? '—' : format(_settleJpegQuality),
+      'minScale': widget.minScale,
+      'duty': duty == null || duty >= 1 ? '無' : duty.toStringAsFixed(2),
+    };
+  }
+
   void _publishNativeDebug(AqutterNativeSession session) {
     session.debug
+      ..['mode'] = _modeDescription
       ..['nativeFrames'] = _nativeFrames
       ..['nativeUnchanged'] = _nativeUnchanged
       ..['nativeBackoff'] = _nativeBackoff

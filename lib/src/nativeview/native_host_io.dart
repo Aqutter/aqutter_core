@@ -173,6 +173,8 @@ class AqutterNativeHost with WidgetsBindingObserver {
           for (final socket in _clients[id] ?? const <WebSocket>{}) {'inFlight': _inFlight[socket] ?? 0, 'hidden': _hidden.contains(socket)},
         ],
         'endpointPort': _endpoint?.port,
+        'inFlightLimit': _sessions[id]?.maxInFlight ?? aqutterNativeMaxInFlight,
+        'inFlightAuto': _sessions[id]?.autoMaxInFlight ?? false,
       };
 
   bool _canSend(String id) {
