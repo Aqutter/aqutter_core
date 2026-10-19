@@ -32,7 +32,7 @@ class AqutterNative extends StatefulWidget {
     this.maxPixelRatio = 3.0,
     this.skipUnchanged = true,
     this.quality,
-    this.minScale = 0.4,
+    this.minScale,
     this.autoBudget = const Duration(milliseconds: 30),
     this.settleDelay = const Duration(milliseconds: 250),
     this.nativeCapture = false,
@@ -70,8 +70,11 @@ class AqutterNative extends StatefulWidget {
   /// Flutter 自己畫的內容用 `auto`。
   final AqutterNativeQuality? quality;
 
-  /// 解析度倍率下限（線性，相對於基準解析度）：`smooth` 的固定倍率、`auto` 的下限。預設 0.4。
-  final double minScale;
+  /// 解析度倍率下限的預設值（所有平台、所有外掛共用）。
+  static const double defaultMinScale = 0.4;
+
+  /// 解析度倍率下限（線性，相對於基準解析度）：`smooth` 的固定倍率、`auto` 的下限。`null`（預設）用 [defaultMinScale]（0.4）；外掛想沿用框架預設時傳 `null` 即可。
+  final double? minScale;
 
   /// `auto` 政策下每幀的時間預算：擷取耗時連續超過它就降解析度，連續很快才升回來。預設 30 ms。
   final Duration autoBudget;
@@ -149,7 +152,7 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 上一次擷取時的重繪次數；沒變代表畫面沒變。
   int _lastPaintCount = -1;
 
-  late AqutterNativeScaler _scaler = AqutterNativeScaler(minScale: widget.minScale);
+  late AqutterNativeScaler _scaler = AqutterNativeScaler(minScale: _minScale);
   final Stopwatch _sinceChange = Stopwatch()..start();
   bool _settled = true;
 
@@ -227,7 +230,7 @@ class _AqutterNativeState extends State<AqutterNative> {
   }
 
   void _register() {
-    _scaler = AqutterNativeScaler(minScale: widget.minScale);
+    _scaler = AqutterNativeScaler(minScale: _minScale);
     final session = AqutterNativeSession(
       id: widget.sessionId,
       maxFps: widget.maxFps,
@@ -367,9 +370,11 @@ class _AqutterNativeState extends State<AqutterNative> {
   /// 移動中的解析度倍率（相對於基準解析度）。
   double get _movingScale => switch (_policy) {
         AqutterNativeQuality.sharp => 1.0,
-        AqutterNativeQuality.smooth => widget.minScale,
+        AqutterNativeQuality.smooth => _minScale,
         AqutterNativeQuality.auto => _scaler.scale,
       };
+
+  double get _minScale => widget.minScale ?? AqutterNative.defaultMinScale;
 
   double get _autoBudgetMs => widget.autoBudget.inMicroseconds / 1000;
 
@@ -380,7 +385,7 @@ class _AqutterNativeState extends State<AqutterNative> {
     return {
       'compress': format(_movingJpegQuality),
       'settle': format(_settleJpegQuality),
-      'minScale': widget.minScale,
+      'minScale': _minScale,
       'quality': _policy.name,
       'movingScale': _movingScale,
       'duty': duty >= 1 ? '無' : duty.toStringAsFixed(2),
