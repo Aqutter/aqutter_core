@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:aqutter_core/src/platform_interface/flutter_webview_platform_interface.dart';
 import '../webview_environment/webview_environment.dart';
