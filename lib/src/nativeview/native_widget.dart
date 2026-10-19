@@ -453,6 +453,7 @@ class _AqutterNativeState extends State<AqutterNative> {
       if (_policy == AqutterNativeQuality.auto && !settleFrame && changed) {
         _scaler.record(totalWatch.elapsedMicroseconds / 1000, _autoBudgetMs);
       }
+      _publishNativeDebug(session);
       return AqutterNativeFrame(
         width: image.width,
         height: image.height,
