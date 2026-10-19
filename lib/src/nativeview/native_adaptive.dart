@@ -2,7 +2,7 @@
 ///
 /// 解析度的決定：基準解析度（網頁元素實際顯示的物理像素，上限 `maxPixelRatio`）乘上這裡決定的倍率。
 enum AqutterNativeQuality {
-  /// 盡可能快：移動中固定在 `minScale`（預設 0.5，線性，面積約四分之一）。擷取很貴的內容（原生擷取，例如地圖）預設用這個。
+  /// 盡可能快：移動中固定在 `minScale`（預設 0.4，線性，面積約 16%）。擷取很貴的內容（原生擷取，例如地圖）預設用這個。
   smooth,
 
   /// 一律清晰：移動中也是基準解析度。每幀大很多（Android 平板全螢幕一幀約 27 MB），幀率會低。
@@ -18,7 +18,7 @@ enum AqutterNativeQuality {
 /// 連續幾幀超過預算才降、連續很多幀都很快才升，並有下限，避免畫質忽高忽低。
 class AqutterNativeScaler {
   AqutterNativeScaler({
-    this.minScale = 0.5,
+    this.minScale = 0.4,
     this.step = 0.85,
     this.slowFramesToDegrade = 3,
     this.fastFramesToRecover = 30,

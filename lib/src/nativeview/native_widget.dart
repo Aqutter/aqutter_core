@@ -32,7 +32,7 @@ class AqutterNative extends StatefulWidget {
     this.maxPixelRatio = 3.0,
     this.skipUnchanged = true,
     this.quality,
-    this.minScale = 0.5,
+    this.minScale = 0.4,
     this.autoBudget = const Duration(milliseconds: 30),
     this.settleDelay = const Duration(milliseconds: 250),
     this.nativeCapture = false,
@@ -70,7 +70,7 @@ class AqutterNative extends StatefulWidget {
   /// Flutter 自己畫的內容用 `auto`。
   final AqutterNativeQuality? quality;
 
-  /// 解析度倍率下限（線性，相對於基準解析度）：`smooth` 的固定倍率、`auto` 的下限。預設 0.5。
+  /// 解析度倍率下限（線性，相對於基準解析度）：`smooth` 的固定倍率、`auto` 的下限。預設 0.4。
   final double minScale;
 
   /// `auto` 政策下每幀的時間預算：擷取耗時連續超過它就降解析度，連續很快才升回來。預設 30 ms。

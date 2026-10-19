@@ -95,7 +95,7 @@ void main() {
     addTearDown(counter.dispose);
     await tester.pumpWidget(host(AqutterNative(sessionId: 'smooth', quality: AqutterNativeQuality.smooth, child: _Painter(counter))));
     final moving = await _measure(tester, 'smooth', const Duration(milliseconds: 500), resize: resize200, animate: counter);
-    expect(moving.width, 100); // 預設 minScale 0.5：200 的一半
+    expect(moving.width, 80); // 預設 minScale 0.4：200 的 0.4 倍
     final settled = await _measure(tester, 'smooth', const Duration(milliseconds: 900), resize: resize200);
     expect(settled.width, 200); // 內容停了：補完整解析度的定格幀
   });
