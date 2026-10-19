@@ -16,12 +16,11 @@ public class AqutterNativeCapture: NSObject {
   /// 擷取解析度上限（倍率）；降到 2× 換 fps（螢幕原生可能是 3×）。
   private static let captureScale: CGFloat = 2.0
 
-  /// 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。
-  private var lastBytes: Data?
+  /// 各擷取區域上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）；以區域左上角分開，同頁多個地圖才不會互相比對。
+  private var lastByRegion: [String: (data: Data, size: (Int, Int))] = [:]
   /// 最近一次擷取各階段耗時（毫秒），隨結果回傳給 Dart 方便量測。
   private var timing: [String: Double] = [:]
   private func now() -> Double { return CACurrentMediaTime() * 1000 }
-  private var lastSize: (Int, Int) = (0, 0)
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
@@ -74,7 +73,7 @@ public class AqutterNativeCapture: NSObject {
       let drawStart = now()
       if let direct = renderDirect(view: target, bounds: bounds, scale: scale) {
         timing = ["draw": now() - drawStart]
-        return emit(width: direct.width, height: direct.height, data: direct.data, skipUnchanged: skipUnchanged, jpegQuality: jpegQuality)
+        return emit(width: direct.width, height: direct.height, data: direct.data, regionKey: "\(Int(x.rounded())),\(Int(y.rounded()))", skipUnchanged: skipUnchanged, jpegQuality: jpegQuality)
       }
       let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
         target.drawHierarchy(in: bounds, afterScreenUpdates: true)
@@ -117,15 +116,15 @@ public class AqutterNativeCapture: NSObject {
     return drawn ? (width, height, data) : nil
   }
 
-  private func emit(width: Int, height: Int, data: Data, skipUnchanged: Bool, jpegQuality: Double?) -> Any? {
+  private func emit(width: Int, height: Int, data: Data, regionKey: String, skipUnchanged: Bool, jpegQuality: Double?) -> Any? {
     let compareStart = now()
-    if skipUnchanged, let last = lastBytes, lastSize == (width, height), last == data {
+    if skipUnchanged, let last = lastByRegion[regionKey], last.size == (width, height), last.data == data {
       timing["compare"] = now() - compareStart
       return ["unchanged": true, "timing": timing]
     }
     timing["compare"] = now() - compareStart
-    lastBytes = data
-    lastSize = (width, height)
+    if lastByRegion.count >= 8, lastByRegion[regionKey] == nil { lastByRegion.removeAll() }
+    lastByRegion[regionKey] = (data, (width, height))
     // 有給品質就壓成 JPEG：移動中的畫面每幀小一個數量級，傳輸與網頁端解碼都省
     let encodeStart = now()
     if let quality = jpegQuality, let jpeg = jpegData(width: width, height: height, data: data, quality: quality) {

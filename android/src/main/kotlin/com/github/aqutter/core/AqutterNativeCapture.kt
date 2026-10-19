@@ -41,10 +41,10 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
 
   private val mainHandler = Handler(Looper.getMainLooper())
 
-  /** 上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）。 */
-  private var lastBytes: ByteArray? = null
-  private var lastWidth = 0
-  private var lastHeight = 0
+  private class Last(val bytes: ByteArray, val width: Int, val height: Int)
+
+  /** 各擷取區域上一張回傳的像素，供 skipUnchanged 比對（同尺寸才比）；以區域左上角分開，同頁多個地圖才不會互相比對。 */
+  private val lastByRegion = HashMap<String, Last>()
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     if (call.method != "capture") {
@@ -87,6 +87,7 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
     val jpegQuality = call.argument<Double>("jpegQuality")
     // 畫面與上一張完全相同時不回傳像素：靜止的地圖不再持續占用傳輸與網頁端解碼
     val skipUnchanged = call.argument<Boolean>("skipUnchanged") ?: false
+    val regionKey = "${x.roundToInt()},${y.roundToInt()}"
 
     fun finish(bitmap: Bitmap?) {
       if (bitmap == null) {
@@ -99,14 +100,16 @@ class AqutterNativeCapture(private val plugin: AqutterCorePlugin) : MethodChanne
       val bytes = raw.array()
       val copiedNs = System.nanoTime()
       fun ms(from: Long, to: Long) = (to - from) / 1_000_000.0
-      if (skipUnchanged && lastWidth == bitmap.width && lastHeight == bitmap.height && lastBytes?.contentEquals(bytes) == true) {
+      val last = lastByRegion[regionKey]
+      if (skipUnchanged && last != null && last.width == bitmap.width && last.height == bitmap.height && last.bytes.contentEquals(bytes)) {
         bitmap.recycle()
         result.success(mapOf("unchanged" to true, "timing" to mapOf("draw" to ms(startNs, grabbedNs), "compare" to ms(grabbedNs, System.nanoTime()))))
         return
       }
-      lastBytes = bytes
-      lastWidth = bitmap.width
-      lastHeight = bitmap.height
+      if (lastByRegion.size >= 8 && !lastByRegion.containsKey(regionKey)) {
+        lastByRegion.clear()
+      }
+      lastByRegion[regionKey] = Last(bytes, bitmap.width, bitmap.height)
       if (jpegQuality != null) {
         val out = ByteArrayOutputStream(bitmap.byteCount / 8)
         bitmap.compress(Bitmap.CompressFormat.JPEG, (jpegQuality * 100).roundToInt().coerceIn(1, 100), out)
