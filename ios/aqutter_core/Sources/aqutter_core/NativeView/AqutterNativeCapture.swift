@@ -67,7 +67,7 @@ public class AqutterNativeCapture: NSObject {
     // 優先：直接擷取目標 view 本身——只含該 view、排除疊在其上的不透明網頁覆蓋層，
     // 因此滿版鏡像頁（網頁完全蓋住原生 view）也取得到，且免裁切。
     if let typeName = viewTypeContains,
-      let target = firstView(in: window, typeContaining: typeName),
+      let target = bestView(in: window, typeContaining: typeName, overlapping: CGRect(x: x, y: y, width: w, height: h)),
       target.bounds.width >= 1, target.bounds.height >= 1 {
       let bounds = target.bounds
       // 直接畫進自己的 RGBA 緩衝：省掉「renderer 出 CGImage 再重畫一次」的整張複製
@@ -155,6 +155,32 @@ public class AqutterNativeCapture: NSObject {
         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     else { return nil }
     return UIImage(cgImage: image).jpegData(compressionQuality: CGFloat(quality))
+  }
+
+  /// 類名含 [typeContaining] 的 view 裡，與 [rect]（視窗座標，logical points）重疊面積最大的那個。
+  /// 同一頁有多個同類的 view（例如兩個地圖左右各一半）時，才不會每個鏡像都擷取到第一個。
+  private func bestView(in window: UIWindow, typeContaining name: String, overlapping rect: CGRect) -> UIView? {
+    var matches: [UIView] = []
+    collectViews(in: window, typeContaining: name, into: &matches)
+    var best: UIView?
+    var bestArea: CGFloat = -1
+    for view in matches {
+      let frame = view.convert(view.bounds, to: window)
+      let overlap = frame.intersection(rect)
+      let area = overlap.isNull ? 0 : overlap.width * overlap.height
+      if area > bestArea {
+        best = view
+        bestArea = area
+      }
+    }
+    return best
+  }
+
+  private func collectViews(in view: UIView, typeContaining name: String, into result: inout [UIView]) {
+    if String(describing: type(of: view)).contains(name) { result.append(view) }
+    for subview in view.subviews {
+      collectViews(in: subview, typeContaining: name, into: &result)
+    }
   }
 
   /// 遞迴找類名含 [typeContaining] 的 view（以類名比對，免 import 該 view 所屬的 SDK）。
