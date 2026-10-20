@@ -25,7 +25,7 @@ set(PLUGIN_NAME "aqutter_core_plugin")
 
 find_program(NUGET nuget)
 if(NOT NUGET)
-  message(NOTICE "Nuget is not installed! The aqutter_core plugin requires it. Check https://inappwebview.dev/docs/intro#setup-windows")
+  message(NOTICE "Nuget is not installed! The aqutter_core plugin requires it. Check https://github.com/Aqutter/aqutter/blob/main/docs/windows.md")
 endif()
 
 add_custom_target(${PROJECT_NAME}_DEPS ALL)
@@ -35,7 +35,6 @@ add_custom_command(
   COMMAND ${NUGET} install Microsoft.Windows.CppWinRT -Version ${CPP_WINRT_VERSION} -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages
   COMMAND ${NUGET} install Microsoft.Web.WebView2 -Version ${WEBVIEW_VERSION} -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages
   COMMAND ${NUGET} install nlohmann.json -Version ${NLOHMANN_JSON_VERSION} -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages
-  DEPENDS ${NUGET}
 )
 
 # Any new source files that you add to the plugin should be added here.
