@@ -1,6 +1,6 @@
 # Plan: Windows custom_platform_view 效能優化
 
-- Status: In Progress
+- Status: Awaiting Archive
 - Base Branch: (本地實驗，無遠端基準；由 tag 0.0.0 切出)
 - Milestone: 不指定
 - Issue: 無
@@ -31,9 +31,16 @@
 - 推送分支與移動 tag 需人工決定（本流程不推送）
 
 ## Tasks
-- [ ] 輸入事件合併（Dart）
-- [ ] 尺寸/位置回報每幀合併（Dart）
-- [ ] kNumBuffers 1→2
-- [ ] Capture Closed／Start 失敗恢復
-- [ ] swizzle 去除對 `/arch:AVX2` 的全域依賴並補 SSSE3
-- [ ] 單元測試 + Windows 範例 App 建置
+- [x] 輸入事件合併（Dart）
+- [x] 尺寸/位置回報每幀合併（Dart）
+- [x] kNumBuffers 1→2
+- [x] Capture Closed／Start 失敗恢復
+- [x] swizzle 去除對 `/arch:AVX2` 的全域依賴並補 SSSE3
+- [x] 單元測試 + Windows 範例 App 建置
+
+## Verification
+- `flutter test test/windows_input_coalescer_test.dart`：8 項通過
+- `windows/test/swizzle_standalone_test.cpp`（MSVC、不加 /arch）：SSSE3、AVX2 共 209 組與 portable 一致；本機 CPU 無 AVX-512，該路徑僅編譯未執行
+- `flutter build windows --debug`：`aqutter_core_plugin.dll` 編譯連結成功；整體失敗僅因第三方 `permission_handler_windows` 找不到 include（與本計畫無關）
+- 未驗證：實機執行與 FPS/CPU 量測
+- 既有 `test/nativeview_test.dart` 在基準版本即失敗，與本計畫無關
