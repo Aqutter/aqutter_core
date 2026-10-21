@@ -11,35 +11,56 @@
 
 namespace aqutter_core_plugin
 {
-  const int kNumBuffers = 1;
+  // Two buffers, not one. With a single buffer the pool hands the very same surface to the next
+  // capture as soon as OnFrameArrived releases its frame, while |last_frame_| is still being read
+  // later on Flutter's raster thread (copy / map in GetSurfaceDescriptor / CopyPixelBuffer). A
+  // second buffer lets the capture rotate away from the surface that is being read.
+  const int kNumBuffers = 2;
 
   TextureBridge::TextureBridge(GraphicsContext* graphics_context,
     ABI::Windows::UI::Composition::IVisual* visual)
     : graphics_context_(graphics_context)
   {
+    visual_.copy_from(visual);
+    const bool attached = AttachCaptureItem();
+    assert(attached);
+    (void)attached;
+  }
+
+  bool TextureBridge::AttachCaptureItem()
+  {
+    if (capture_item_ && on_closed_token_.value != 0) {
+      capture_item_->remove_Closed(on_closed_token_);
+      on_closed_token_ = {};
+    }
     capture_item_ =
-      graphics_context_->CreateGraphicsCaptureItemFromVisual(visual);
-    assert(capture_item_);
+      graphics_context_->CreateGraphicsCaptureItemFromVisual(visual_.get());
+    if (!capture_item_) {
+      return false;
+    }
 
     capture_item_->add_Closed(
       Microsoft::WRL::Callback<ABI::Windows::Foundation::ITypedEventHandler<
       ABI::Windows::Graphics::Capture::GraphicsCaptureItem*,
       IInspectable*>>(
-        [](ABI::Windows::Graphics::Capture::IGraphicsCaptureItem* item,
+        [this](ABI::Windows::Graphics::Capture::IGraphicsCaptureItem* item,
           IInspectable* args) -> HRESULT
         {
-          std::cerr << "Capture item was closed." << std::endl;
+          // Only record it. The capture stops delivering frames, and the next Start() (every
+          // setSize call goes through it) tears the session down and builds a new one.
+          capture_closed_ = true;
           return S_OK;
         })
       .Get(),
           &on_closed_token_);
+    return true;
   }
 
   TextureBridge::~TextureBridge()
   {
     const std::lock_guard<std::mutex> lock(mutex_);
     StopInternal();
-    if (capture_item_) {
+    if (capture_item_ && on_closed_token_.value != 0) {
       capture_item_->remove_Closed(on_closed_token_);
     }
   }
@@ -47,6 +68,12 @@ namespace aqutter_core_plugin
   bool TextureBridge::Start()
   {
     const std::lock_guard<std::mutex> lock(mutex_);
+    if (capture_closed_.exchange(false)) {
+      StopInternal();
+      if (!AttachCaptureItem()) {
+        return false;
+      }
+    }
     if (is_running_ || !capture_item_) {
       return false;
     }
@@ -59,7 +86,10 @@ namespace aqutter_core_plugin
       static_cast<ABI::Windows::Graphics::DirectX::DirectXPixelFormat>(
         kPixelFormat),
       kNumBuffers, size);
-    assert(frame_pool_);
+    if (!frame_pool_) {
+      std::cerr << "Creating capture frame pool failed." << std::endl;
+      return false;
+    }
 
     frame_pool_->add_FrameArrived(
       Microsoft::WRL::Callback<ABI::Windows::Foundation::ITypedEventHandler<
@@ -78,6 +108,7 @@ namespace aqutter_core_plugin
     if (FAILED(frame_pool_->CreateCaptureSession(capture_item_.get(),
       capture_session_.put()))) {
       std::cerr << "Creating capture session failed." << std::endl;
+      AbortStart();
       return false;
     }
 
@@ -86,7 +117,18 @@ namespace aqutter_core_plugin
       return true;
     }
 
+    AbortStart();
     return false;
+  }
+
+  void TextureBridge::AbortStart()
+  {
+    if (frame_pool_) {
+      frame_pool_->remove_FrameArrived(on_frame_arrived_token_);
+      on_frame_arrived_token_ = {};
+      frame_pool_ = nullptr;
+    }
+    capture_session_ = nullptr;
   }
 
   void TextureBridge::Stop()

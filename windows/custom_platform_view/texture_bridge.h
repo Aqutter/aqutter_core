@@ -3,6 +3,7 @@
 #include <windows.graphics.capture.h>
 #include <wrl.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -63,6 +64,10 @@ namespace aqutter_core_plugin
     std::optional<std::chrono::high_resolution_clock::time_point>
       last_frame_timestamp_;
 
+    winrt::com_ptr<ABI::Windows::UI::Composition::IVisual> visual_;
+    // Set from the capture item's Closed event (any thread); consumed by Start().
+    std::atomic<bool> capture_closed_ = false;
+
     winrt::com_ptr<ABI::Windows::Graphics::Capture::IGraphicsCaptureItem>
       capture_item_;
     winrt::com_ptr<ABI::Windows::Graphics::Capture::IDirect3D11CaptureFramePool>
@@ -75,6 +80,10 @@ namespace aqutter_core_plugin
 
     virtual void StopInternal();
     void OnFrameArrived();
+    // (Re)creates |capture_item_| from |visual_| and subscribes to its Closed event.
+    bool AttachCaptureItem();
+    // Undoes a partially completed Start() so that a later Start() can retry cleanly.
+    void AbortStart();
     bool ShouldDropFrame();
 
     // corresponds to DXGI_FORMAT_B8G8R8A8_UNORM
