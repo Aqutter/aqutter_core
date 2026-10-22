@@ -168,27 +168,47 @@ void main() {
       );
     }
 
-    await scenario('video_steady_5s', () async {
-      final end = DateTime.now().add(const Duration(seconds: 5));
-      while (DateTime.now().isBefore(end)) {
-        await tester.pump(const Duration(milliseconds: 16));
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 8)),
-        );
-      }
-    });
+    // BENCH_ONLY=resize runs just the resize sweep, BENCH_REPEAT=n repeats it n times.
+    final onlyResize = Platform.environment['BENCH_ONLY'] == 'resize';
+    final repeat = int.tryParse(Platform.environment['BENCH_REPEAT'] ?? '') ?? 1;
 
-    await scenario('video_resize_sweep_150', () async {
-      for (var i = 0; i < 150; i++) {
-        final t = i / 149.0;
-        final k = t < 0.5 ? t * 2 : (1 - t) * 2;
-        size.value = Size(1280 - 280 * k, 720 - 160 * k);
-        await tester.pump(const Duration(milliseconds: 16));
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 8)),
-        );
-      }
-    });
+    if (!onlyResize) {
+      await scenario('video_steady_5s', () async {
+        final end = DateTime.now().add(const Duration(seconds: 5));
+        while (DateTime.now().isBefore(end)) {
+          await tester.pump(const Duration(milliseconds: 16));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 8)),
+          );
+        }
+      });
+    }
+
+    for (var rep = 0; rep < repeat; rep++) {
+      await scenario('video_resize_sweep_150', () async {
+        for (var i = 0; i < 150; i++) {
+          final t = i / 149.0;
+          final k = t < 0.5 ? t * 2 : (1 - t) * 2;
+          size.value = Size(1280 - 280 * k, 720 - 160 * k);
+          await tester.pump(const Duration(milliseconds: 16));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 8)),
+          );
+        }
+      });
+      // let the pipeline settle between sweeps
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(seconds: 2)),
+      );
+    }
+
+    if (onlyResize) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      return;
+    }
 
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: const Offset(5, 5));

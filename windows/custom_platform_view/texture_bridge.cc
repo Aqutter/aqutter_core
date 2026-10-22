@@ -11,11 +11,11 @@
 
 namespace aqutter_core_plugin
 {
-  // Two buffers, not one. With a single buffer the pool hands the very same surface to the next
-  // capture as soon as OnFrameArrived releases its frame, while |last_frame_| is still being read
-  // later on Flutter's raster thread (copy / map in GetSurfaceDescriptor / CopyPixelBuffer). A
-  // second buffer lets the capture rotate away from the surface that is being read.
-  const int kNumBuffers = 2;
+  // One buffer. Two were tried to keep the capture from overwriting the surface that
+  // Flutter's raster thread is still copying; that race is real in theory but was never observed,
+  // and two buffers made resizing a video page clearly worse (median dropped video frames 4 -> 19
+  // over 20 sweeps each, see .kn-project/plans/*windows-platform-view-perf).
+  const int kNumBuffers = 1;
 
   TextureBridge::TextureBridge(GraphicsContext* graphics_context,
     ABI::Windows::UI::Composition::IVisual* visual)
