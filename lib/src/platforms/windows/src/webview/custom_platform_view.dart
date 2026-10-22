@@ -1,10 +1,14 @@
 import 'package:flutter/services.dart';
+
 import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
+
 import '../platform_util.dart';
+import 'input_coalescer.dart';
 import '_static_channel.dart';
 
 const Map<String, SystemMouseCursor> _cursors = {
@@ -320,6 +324,26 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   final _controller = CustomPlatformViewController();
   final _focusNode = FocusNode();
 
+  /// Merges move / scroll / touch-update input to one channel call per frame.
+  /// Everything that must stay ordered against it calls `_input.flush()` first.
+  late final InputCoalescer _input = InputCoalescer(
+    sendCursorPos: _controller._setCursorPos,
+    sendScroll: _controller._setScrollDelta,
+    sendTouchUpdate: (pointer, position, size, pressure) =>
+        _controller._setPointerUpdate(
+          AqutterWebViewPointerEventKind.update,
+          pointer,
+          position,
+          size,
+          pressure,
+        ),
+    schedule: (flush) =>
+        SchedulerBinding.instance.scheduleFrameCallback((_) => flush()),
+  );
+
+  /// Whether a surface size / position report is already queued for the end of this frame.
+  bool _geometryReportQueued = false;
+
   StreamSubscription? _cursorSubscription;
 
   late final AppLifecycleListener _listener;
@@ -346,8 +370,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
           AppLifecycleState.resumed,
           AppLifecycleState.hidden,
         ].contains(state)) {
-          _reportSurfaceSize();
-          _reportWidgetPosition();
+          _queueGeometryReport();
         }
       },
     );
@@ -367,8 +390,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
 
   @override
   void onWindowMove() {
-    _reportSurfaceSize();
-    _reportWidgetPosition();
+    _queueGeometryReport();
   }
 
   @override
@@ -386,8 +408,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   Widget _buildInner() {
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (notification) {
-        _reportSurfaceSize();
-        _reportWidgetPosition();
+        _queueGeometryReport();
         return true;
       },
       child: SizeChangedLayoutNotifier(
@@ -400,15 +421,16 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                     // Ignoring hover events on touch for now
                     return;
                   }
-                  _controller._setCursorPos(ev.localPosition);
+                  _input.moveCursor(ev.localPosition);
                 },
                 onPointerDown: (ev) {
+                  _input.flush();
                   _reportGeometryIfMoved();
 
                   if (!_focusNode.hasFocus) {
                     _focusNode.requestFocus();
                     Future.delayed(const Duration(milliseconds: 50), () {
-                      if (!_focusNode.hasFocus) {
+                      if (mounted && !_focusNode.hasFocus) {
                         _focusNode.requestFocus();
                       }
                     });
@@ -433,6 +455,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   );
                 },
                 onPointerUp: (ev) {
+                  _input.flush();
                   _pointerKind = ev.kind;
                   if (ev.kind == PointerDeviceKind.touch) {
                     _controller._setPointerUpdate(
@@ -453,6 +476,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   }
                 },
                 onPointerCancel: (ev) {
+                  _input.flush();
                   _pointerKind = ev.kind;
                   final button = _downButtons.remove(ev.pointer);
                   if (button != null) {
@@ -465,20 +489,19 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                 onPointerMove: (ev) {
                   _pointerKind = ev.kind;
                   if (ev.kind == PointerDeviceKind.touch) {
-                    _controller._setPointerUpdate(
-                      AqutterWebViewPointerEventKind.update,
+                    _input.touchUpdate(
                       ev.pointer,
                       ev.localPosition,
                       ev.size,
                       ev.pressure,
                     );
                   } else {
-                    _controller._setCursorPos(ev.localPosition);
+                    _input.moveCursor(ev.localPosition);
                   }
                 },
                 onPointerSignal: (signal) {
                   if (signal is PointerScrollEvent) {
-                    _controller._setScrollDelta(
+                    _input.addScroll(
                       -signal.scrollDelta.dx,
                       -signal.scrollDelta.dy,
                     );
@@ -490,6 +513,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   // browser. That is what produces momentum after the fingers lift, and what
                   // lets a diagonal swipe move both axes at once -- a synthetic wheel carries
                   // one axis per event and can express neither.
+                  _input.flush();
                   _panContactOrigin = ev.localPosition;
                   _panTotal = Offset.zero;
                   _controller._setPointerUpdate(
@@ -505,8 +529,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   // contact should now be. No sign flip: a touch contact follows the fingers,
                   // and so does pan.
                   _panTotal = ev.pan;
-                  _controller._setPointerUpdate(
-                    AqutterWebViewPointerEventKind.update,
+                  _input.touchUpdate(
                     ev.pointer,
                     _panContactOrigin + ev.pan,
                     0,
@@ -517,6 +540,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   // Lifting the contact is what lets the browser turn the movement that
                   // preceded it into a fling; the end event carries no pan of its own, so the
                   // last known position is reused.
+                  _input.flush();
                   _controller._setPointerUpdate(
                     AqutterWebViewPointerEventKind.up,
                     ev.pointer,
@@ -529,6 +553,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                 child: MouseRegion(
                   cursor: _cursor,
                   onEnter: (ev) {
+                    _input.flush();
+                    _input.resetLastSentCursor();
                     final button = _getButton(ev.buttons);
                     _controller._setPointerButtonState(
                       AqutterWebViewPointerEventKind.enter,
@@ -536,6 +562,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                     );
                   },
                   onExit: (ev) {
+                    _input.flush();
+                    _input.resetLastSentCursor();
                     final button = _getButton(ev.buttons);
                     _controller._setPointerButtonState(
                       AqutterWebViewPointerEventKind.leave,
@@ -571,6 +599,32 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
     _reportWidgetPosition();
   }
 
+  /// Queues one size + position report for the end of the current frame.
+  ///
+  /// A window drag or resize fires a layout notification, a window-move callback and a lifecycle
+  /// callback for the same frame; each used to cost two method channel calls, and every size
+  /// change makes WebView2 redo put_Bounds. Collapsing them keeps the final geometry of the frame
+  /// (read after layout) and drops the redundant intermediates. This is deliberately not a timed
+  /// debounce: a report must never be postponed past the frame that produced it, because the
+  /// native side only applies bounds once its WebView2 controller exists (see [_pointerDownSize]).
+  void _queueGeometryReport() {
+    if (_geometryReportQueued) {
+      return;
+    }
+    _geometryReportQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _geometryReportQueued = false;
+      if (!mounted) {
+        return;
+      }
+      // The page under a stationary cursor may have changed.
+      _input.resetLastSentCursor();
+      _reportSurfaceSize();
+      _reportWidgetPosition();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   void _reportSurfaceSize() async {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
     if (box != null) {
@@ -602,6 +656,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   void dispose() {
     super.dispose();
     _platformUtil.removeListener(this);
+    _input.dispose();
     _cursorSubscription?.cancel();
     _controller.dispose();
     _focusNode.dispose();

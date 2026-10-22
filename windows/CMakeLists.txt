@@ -273,10 +273,9 @@ else()
     "custom_platform_view/util/cpuid/cpuinfo.cc"
     "custom_platform_view/util/cpuid/cpuinfo.h"
   )
-  # Enable AVX2 for pixel buffer conversions
-  if(MSVC)
-    target_compile_options(${PLUGIN_NAME} PRIVATE "/arch:AVX2")
-  endif()
+  # No /arch:AVX2 here: util/swizzle.h picks SSSE3 / AVX2 / AVX-512 at runtime from cpuid and
+  # enables each instruction set per function. A global /arch:AVX2 would let the compiler emit
+  # AVX2 anywhere in the plugin and crash on CPUs without it before that check is ever reached.
 endif()
 
 # Apply a standard set of build settings that are configured in the
