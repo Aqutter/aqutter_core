@@ -430,7 +430,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   if (!_focusNode.hasFocus) {
                     _focusNode.requestFocus();
                     Future.delayed(const Duration(milliseconds: 50), () {
-                      if (!_focusNode.hasFocus) {
+                      if (mounted && !_focusNode.hasFocus) {
                         _focusNode.requestFocus();
                       }
                     });
