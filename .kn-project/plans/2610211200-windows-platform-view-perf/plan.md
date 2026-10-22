@@ -52,3 +52,14 @@
   - 同一幀「移動後立即點擊」→ 點擊落在 (49,49)，順序正確
   - 視窗縮放 400→640：網頁視窗尺寸跟隨；resize 事件數與改動前相同（每次縮放本來就各佔一幀）
 - 未量測：FPS／CPU／延遲；`kNumBuffers=2` 與 Closed 恢復僅確認可編譯與正常執行，未製造 tearing 或關閉捕捉的情境來驗證
+
+## Benchmark（`example/integration_test/windows_perf_bench_test.dart`，Windows，WebView2，CPU 為 app 行程）
+| 情境 | 改動前 | 改動後 run1 | run2 | run3 |
+|---|---|---|---|---|
+| 網頁動畫 3s CPU | 1078 ms | 875 | 828 | 1063 |
+| 縮放 150 幀 CPU | 1969 | 1984 | 1797 | 2891 |
+| 輸入風暴 60 幀 CPU | 2078 | 1641 | 1484 | 3141 |
+- 單機單次量測、run3 明顯受機器負載影響，雜訊大；僅「輸入風暴」在 3 次中有 2 次低於基準，不構成可靠結論。
+- 幀時間（build/raster 平均 0.4–1.9 ms，縮放最差 3.5–7 ms）改動前後無顯著差異。
+- 決定不做：GPU surface 預留餘量（縮放無卡頓可解）、縮小 mutex 範圍、調整 Flush（無競爭或同步成本證據）。
+- 新增：略過位置未變的 setCursorPos（enter/leave 與幾何回報後重設）。

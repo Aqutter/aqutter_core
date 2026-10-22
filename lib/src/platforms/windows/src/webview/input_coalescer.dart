@@ -32,6 +32,8 @@ class InputCoalescer {
   final void Function(void Function() flush) schedule;
 
   Offset? _cursor;
+  // Last position actually sent, so a hover that did not move is not sent again.
+  Offset? _lastSentCursor;
   double _scrollDx = 0;
   double _scrollDy = 0;
   bool _hasScroll = false;
@@ -79,7 +81,8 @@ class InputCoalescer {
     _scrollDy = 0;
     _touches.clear();
 
-    if (cursor != null) {
+    if (cursor != null && cursor != _lastSentCursor) {
+      _lastSentCursor = cursor;
       sendCursorPos(cursor);
     }
     for (final t in touches) {
@@ -89,6 +92,10 @@ class InputCoalescer {
       sendScroll(dx, dy);
     }
   }
+
+  /// Forgets the last sent cursor position so the next one is always sent. Call when something
+  /// other than the pointer changed what is under it (enter / leave, layout change).
+  void resetLastSentCursor() => _lastSentCursor = null;
 
   /// Drops pending input without sending it.
   void dispose() {

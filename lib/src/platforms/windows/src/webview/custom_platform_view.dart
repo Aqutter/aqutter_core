@@ -554,6 +554,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   cursor: _cursor,
                   onEnter: (ev) {
                     _input.flush();
+                    _input.resetLastSentCursor();
                     final button = _getButton(ev.buttons);
                     _controller._setPointerButtonState(
                       AqutterWebViewPointerEventKind.enter,
@@ -562,6 +563,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   },
                   onExit: (ev) {
                     _input.flush();
+                    _input.resetLastSentCursor();
                     final button = _getButton(ev.buttons);
                     _controller._setPointerButtonState(
                       AqutterWebViewPointerEventKind.leave,
@@ -615,6 +617,8 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
       if (!mounted) {
         return;
       }
+      // The page under a stationary cursor may have changed.
+      _input.resetLastSentCursor();
       _reportSurfaceSize();
       _reportWidgetPosition();
     });

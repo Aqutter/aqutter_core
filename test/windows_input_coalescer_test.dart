@@ -70,14 +70,17 @@ void main() {
     expect(log, ['cursor 5.0,6.0', 'button down']);
   });
 
-  test('input after a manual flush is still delivered by the armed callback', () {
-    input.moveCursor(const Offset(1, 1));
-    input.flush();
-    input.moveCursor(const Offset(2, 2));
-    expect(scheduled, hasLength(1), reason: 'no second callback needed');
-    runFrame();
-    expect(log, ['cursor 1.0,1.0', 'cursor 2.0,2.0']);
-  });
+  test(
+    'input after a manual flush is still delivered by the armed callback',
+    () {
+      input.moveCursor(const Offset(1, 1));
+      input.flush();
+      input.moveCursor(const Offset(2, 2));
+      expect(scheduled, hasLength(1), reason: 'no second callback needed');
+      runFrame();
+      expect(log, ['cursor 1.0,1.0', 'cursor 2.0,2.0']);
+    },
+  );
 
   test('a new batch after the frame arms again', () {
     input.moveCursor(const Offset(1, 1));
@@ -86,6 +89,26 @@ void main() {
     expect(scheduled, hasLength(1));
     runFrame();
     expect(log, ['cursor 1.0,1.0', 'cursor 2.0,2.0']);
+  });
+
+  test('a hover that did not move is not sent again', () {
+    input.moveCursor(const Offset(3, 4));
+    runFrame();
+    input.moveCursor(const Offset(3, 4));
+    runFrame();
+    expect(log, ['cursor 3.0,4.0']);
+    input.moveCursor(const Offset(3, 5));
+    runFrame();
+    expect(log, ['cursor 3.0,4.0', 'cursor 3.0,5.0']);
+  });
+
+  test('after resetLastSentCursor the same position is sent again', () {
+    input.moveCursor(const Offset(3, 4));
+    runFrame();
+    input.resetLastSentCursor();
+    input.moveCursor(const Offset(3, 4));
+    runFrame();
+    expect(log, ['cursor 3.0,4.0', 'cursor 3.0,4.0']);
   });
 
   test('dispose drops pending input and ignores later input', () {
