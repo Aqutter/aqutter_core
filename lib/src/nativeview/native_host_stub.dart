@@ -1,3 +1,4 @@
+import 'native_channel.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數（Web 平台不支援，僅為與原生版介面一致）。
@@ -26,6 +27,12 @@ class AqutterNativeHost {
   void unregister(AqutterNativeSession session) {}
 
   bool hasSession(String id) => false;
+
+  void registerChannel(String name, AqutterChannelHandler onConnection) => throw UnsupportedError('Native host is not available on web');
+
+  void unregisterChannel(String name) {}
+
+  bool hasChannel(String name) => false;
 
   Map<String, Object?> diagnostics(String id) => const {};
 

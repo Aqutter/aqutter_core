@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import 'native_channel.dart';
 import 'native_frame.dart';
 import 'native_inflight.dart';
 import 'native_session.dart';
@@ -30,8 +31,10 @@ class AqutterNativeEndpoint {
 
 /// 內嵌的 localhost WebSocket 伺服器：把各 [AqutterNativeSession] 的幀送給網頁，並把網頁訊息送回。
 ///
-/// 連線路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。
-/// 單例；第一次 [ensureStarted] 時以暫時埠啟動。
+/// 連線路徑：
+///   - 鏡像：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`；
+///   - 通用二進位通道：`ws://127.0.0.1:<port>/channel/<pluginId>.<channel>?token=<token>`（見 [registerChannel]）。
+/// 兩條路徑共用同一個伺服器、埠與令牌；單例；第一次 [ensureStarted] 時以暫時埠啟動。
 ///
 /// 流量控制：每個連線最多同時有 [aqutterNativeMaxInFlight] 幀未被確認；網頁每處理完（畫出或丟棄）
 /// 一幀就回 `{"type":"ack"}`。超過上限時不再送新幀給該連線，所有連線都滿時工作階段也不再擷取。
@@ -54,6 +57,10 @@ class AqutterNativeHost with WidgetsBindingObserver {
 
   final Map<String, AqutterNativeSession> _sessions = {};
   final Map<String, Set<WebSocket>> _clients = {};
+
+  /// 通用二進位通道：名稱對應到處理函式，以及各名稱目前的連線。
+  final Map<String, AqutterChannelHandler> _channels = {};
+  final Map<String, Set<WebSocket>> _channelSockets = {};
 
   /// 每個連線目前未被確認的幀數。
   final Map<WebSocket, int> _inFlight = {};
@@ -107,6 +114,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
     _server = null;
     _endpoint = null;
     _starting = null;
+    _closeChannelSockets(WebSocketStatus.goingAway);
     await server?.close(force: true);
     for (final sockets in _clients.values) {
       for (final socket in sockets) {
@@ -152,6 +160,75 @@ class AqutterNativeHost with WidgetsBindingObserver {
   }
 
   bool hasSession(String id) => _sessions.containsKey(id);
+
+  /// 註冊通用二進位通道 [name]（`<pluginId>.<channel>`，須符合 [aqutterChannelNamePattern]）。
+  ///
+  /// 網頁連 `/channel/<name>` 並通過令牌驗證後，每條新連線呼叫一次 [onConnection]。
+  /// 同名再註冊時，**新的連線**交給新的處理函式；既有的連線不受影響。
+  void registerChannel(String name, AqutterChannelHandler onConnection) {
+    if (!aqutterChannelNamePattern.hasMatch(name)) {
+      throw ArgumentError.value(name, 'name', 'Must match ${aqutterChannelNamePattern.pattern}');
+    }
+    _channels[name] = onConnection;
+  }
+
+  /// 取消註冊並以 1001 關閉該名稱的所有連線。沒有註冊過時什麼都不做。
+  void unregisterChannel(String name) {
+    _channels.remove(name);
+    final sockets = _channelSockets.remove(name);
+    for (final socket in sockets ?? const <WebSocket>{}) {
+      socket.close(WebSocketStatus.goingAway);
+    }
+  }
+
+  bool hasChannel(String name) => _channels.containsKey(name);
+
+  void _closeChannelSockets(int code) {
+    for (final sockets in _channelSockets.values) {
+      for (final socket in sockets) {
+        socket.close(code);
+      }
+    }
+    _channelSockets.clear();
+  }
+
+  Future<void> _onChannelRequest(HttpRequest request, String name) async {
+    final endpoint = _endpoint;
+    final handler = _channels[name];
+    final valid = endpoint != null
+        && handler != null
+        && WebSocketTransformer.isUpgradeRequest(request)
+        && request.uri.queryParameters['token'] == endpoint.token;
+    if (!valid) {
+      request.response.statusCode = HttpStatus.forbidden;
+      await request.response.close();
+      return;
+    }
+    final WebSocket socket;
+    try {
+      socket = await WebSocketTransformer.upgrade(request, compression: CompressionOptions.compressionOff);
+    }
+    catch (error) {
+      debugPrint('[aqutter-native] channel upgrade failed: $error');
+      return;
+    }
+    if (!_channels.containsKey(name)) {
+      // 升級期間通道被取消註冊了：這條連線不該留下
+      socket.close(WebSocketStatus.goingAway);
+      return;
+    }
+    final sockets = _channelSockets.putIfAbsent(name, () => <WebSocket>{});
+    sockets.add(socket);
+    final connection = _SocketChannelConnection(socket);
+    unawaited(socket.done.then((_) => _channelSockets[name]?.remove(socket), onError: (_) => _channelSockets[name]?.remove(socket)));
+    try {
+      handler(connection);
+    }
+    catch (error) {
+      debugPrint('[aqutter-native] channel "$name" handler failed: $error');
+      socket.close(WebSocketStatus.internalServerError);
+    }
+  }
 
   /// 每秒一次：替開啟「自動在途幀數」的工作階段更新上限。
   void _tickAuto() {
@@ -203,6 +280,10 @@ class AqutterNativeHost with WidgetsBindingObserver {
   Future<void> _onRequest(HttpRequest request) async {
     final endpoint = _endpoint;
     final segments = request.uri.pathSegments;
+    if (segments.length == 2 && segments[0] == 'channel') {
+      await _onChannelRequest(request, segments[1]);
+      return;
+    }
     final valid = endpoint != null
         && WebSocketTransformer.isUpgradeRequest(request)
         && segments.length == 2
@@ -317,6 +398,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
     for (final session in List<AqutterNativeSession>.of(_sessions.values)) {
       unregister(session);
     }
+    _closeChannelSockets(WebSocketStatus.goingAway);
     await _server?.close(force: true);
     _autoTimer?.cancel();
     _autoTimer = null;
@@ -329,5 +411,62 @@ class AqutterNativeHost with WidgetsBindingObserver {
       _observing = false;
       WidgetsBinding.instance.removeObserver(this);
     }
+  }
+}
+
+/// [AqutterChannelConnection] 的 WebSocket 實作：只轉發二進位訊息，文字訊息忽略。
+class _SocketChannelConnection implements AqutterChannelConnection {
+  _SocketChannelConnection(this._socket) {
+    _socket.listen(
+      (data) {
+        if (data is String) {
+          return;
+        }
+        if (data is Uint8List) {
+          _messages.add(data);
+        }
+        else if (data is List<int>) {
+          _messages.add(Uint8List.fromList(data));
+        }
+      },
+      onDone: _onClosed,
+      onError: (Object _) => _onClosed(),
+    );
+  }
+
+  final WebSocket _socket;
+  final StreamController<Uint8List> _messages = StreamController<Uint8List>();
+  final Completer<void> _closed = Completer<void>();
+
+  /// 網頁那一側關閉了（或連線出錯）：完成 [done]，並回送關閉讓握手結束。
+  /// dart:io 的 `WebSocket.done` 要等本地也關閉才完成，所以不能直接拿來當「對方關了」的訊號。
+  void _onClosed() {
+    if (!_messages.isClosed) {
+      _messages.close();
+    }
+    if (_socket.readyState != WebSocket.closed) {
+      _socket.close();
+    }
+    if (!_closed.isCompleted) {
+      _closed.complete();
+    }
+  }
+
+  @override
+  Stream<Uint8List> get messages => _messages.stream;
+
+  @override
+  void send(Uint8List data) {
+    if (_socket.readyState == WebSocket.open) {
+      _socket.add(data);
+    }
+  }
+
+  @override
+  Future<void> get done => _closed.future;
+
+  @override
+  void close([int? code, String? reason]) {
+    _socket.close(code, reason);
   }
 }

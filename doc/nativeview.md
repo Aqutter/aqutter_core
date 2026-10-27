@@ -34,6 +34,27 @@ AqutterNative(
 
 路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。令牌每次啟動隨機產生，經 bridge handler `native_endpoint` 交給網頁；令牌錯誤或工作階段不存在一律回 403。localhost 上的其他程式因此無法冒連。網頁的 CSP 需允許 `connect-src ws://127.0.0.1:*`。
 
+## 通用二進位通道
+
+同一個本機伺服器、同一個令牌，另開一條給任何 plugin 用的二進位通道，不經 JSON 與 base64。
+
+路徑：`ws://127.0.0.1:<port>/channel/<pluginId>.<channel>?token=<token>`。名稱須符合 `aqutterChannelNamePattern`（兩段各為 `^[a-z][a-z0-9-]*$`）。
+
+```dart
+AqutterNativeHost.instance.registerChannel('bench.echo', (connection) {
+  connection.messages.listen((data) => connection.send(data));
+  connection.done.then((_) => debugPrint('closed'));
+});
+```
+
+- 只有二進位訊息；網頁送來的文字訊息被忽略。訊息內的結構由使用端決定。
+- `messages` 是單一訂閱，會緩衝到有人監聽為止。
+- 令牌錯誤、名稱未註冊、不是 WebSocket 升級一律回 403。
+- 同名再註冊：**新的連線**交給新的處理函式，既有連線不受影響。`unregisterChannel` 以 1001 關閉該名稱的所有連線；`restart()` 與 `stop()` 也會以 1001 關閉所有通道連線。
+- 處理函式拋出例外時連線以 1011 關閉。
+- v1 沒有自動重連、沒有背壓：`send` 交給 WebSocket 的送出佇列，大量下行會在記憶體堆積。
+- 網頁端的 CSP 同樣需要 `connect-src ws://127.0.0.1:*`。
+
 ## 幀格式（Dart → 網頁，二進位）
 
 一幀是**兩則**連續的二進位訊息：先標頭（24 bytes）、再像素（不把像素複製進同一個緩衝區，手機上複製數 MB 要花數毫秒）。WebSocket 保證順序，網頁端嚴格依「標頭、像素、標頭、像素…」交替解讀；重新連線時重新從標頭開始。標頭 little-endian：`[w u32 | h u32 | fmt u32 | seq u32 | sentAt f64 (epoch ms)]`，`seq` 是每個工作階段從 1 遞增的序號。
