@@ -2,6 +2,7 @@
 /// 並接收網頁端回傳的手勢，讓網頁能在原生內容之上疊 HTML。網頁端見 `@aqutter/aqutter` 的 `<aqutter-native>`。
 library;
 
+export 'native_channel.dart' show AqutterChannelConnection, AqutterChannelHandler, aqutterChannelNamePattern;
 export 'native_frame.dart' show AqutterNativeFormat, AqutterNativeFrame, AqutterNativeMessage, AqutterNativeViewport, aqutterNativeHeaderLength, encodeAqutterNativeFrameHeader;
 export 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart' show AqutterNativeEndpoint, AqutterNativeHost, aqutterNativeMaxInFlight;
 export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessageHandler, AqutterNativeSession;
