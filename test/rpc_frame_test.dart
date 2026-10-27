@@ -101,4 +101,101 @@ void main() {
     bytes.setRange(4, bytes.length, header);
     expect(() => decodeAqutterRpcFrame(bytes), throwsA(isA<AqutterRpcFormatException>()));
   });
+
+  group('auto-split (messages over 64 MiB)', () {
+    Uint8List big(int bytes) => Uint8List(bytes)..fillRange(0, bytes, 7);
+
+    test('a frame within the limit is a single message identical to encodeAqutterRpcFrame', () {
+      const frame = AqutterRpcFrame(type: AqutterRpcFrameType.res, id: 1, payload: {'a': 1});
+      final messages = encodeAqutterRpcMessages(frame, partId: 0);
+      expect(messages, hasLength(1));
+      expect(_hex(messages.single), _hex(encodeAqutterRpcFrame(frame)));
+    });
+
+    test('a 70 MiB payload is split into 16 MiB parts and reassembled intact', () {
+      final data = big(70 * 1024 * 1024);
+      data[5] = 1;
+      data[data.length - 1] = 9;
+      final messages = encodeAqutterRpcMessages(AqutterRpcFrame(type: AqutterRpcFrameType.res, id: 3, payload: {'data': data}), partId: 11);
+      expect(messages.length, 5);
+      for (final message in messages) {
+        expect(message.length, lessThanOrEqualTo(aqutterRpcMaxFrameBytes));
+        expect(decodeAqutterRpcFrame(message).type, AqutterRpcFrameType.part);
+      }
+      final reassembler = AqutterRpcReassembler();
+      AqutterRpcFrame? result;
+      for (final message in messages) {
+        expect(result, isNull);
+        result = reassembler.add(message);
+      }
+      expect(reassembler.pending, 0);
+      expect(result!.id, 3);
+      final out = (result.payload as Map<String, dynamic>)['data'] as Uint8List;
+      expect(out.length, data.length);
+      expect(out[5], 1);
+      expect(out.last, 9);
+    });
+
+    test('a frame over 512 MiB is refused', () {
+      expect(
+        () => encodeAqutterRpcMessages(AqutterRpcFrame(type: AqutterRpcFrameType.res, id: 1, payload: Uint8List(aqutterRpcMaxMessageBytes)), partId: 0),
+        throwsA(isA<AqutterRpcFormatException>()),
+      );
+    });
+
+    test('ordinary frames pass through the reassembler untouched', () {
+      final reassembler = AqutterRpcReassembler();
+      final frame = reassembler.add(encodeAqutterRpcFrame(const AqutterRpcFrame(type: AqutterRpcFrameType.call, id: 4, name: 'a.b')));
+      expect(frame!.name, 'a.b');
+    });
+
+    List<Uint8List> parts(int id, int total, {int sizeOfLast = 3}) => [
+          for (var seq = 0; seq < total; seq++)
+            encodeAqutterRpcFrame(
+              AqutterRpcFrame(
+                type: AqutterRpcFrameType.part,
+                id: id,
+                partSeq: seq,
+                partTotal: total,
+                partData: seq < total - 1 ? big(aqutterRpcPartBytes) : Uint8List(sizeOfLast),
+              ),
+            ),
+        ];
+
+    test('rejects a sequence that does not start at 0 or arrives out of order', () {
+      final three = parts(1, 3);
+      expect(() => AqutterRpcReassembler().add(three[1]), throwsA(isA<AqutterRpcFormatException>()));
+      final reassembler = AqutterRpcReassembler()..add(three[0]);
+      expect(() => reassembler.add(three[2]), throwsA(isA<AqutterRpcFormatException>()));
+    });
+
+    test('rejects a short part that is not the last one', () {
+      final short = encodeAqutterRpcFrame(
+        AqutterRpcFrame(type: AqutterRpcFrameType.part, id: 1, partSeq: 0, partTotal: 2, partData: Uint8List(10)),
+      );
+      expect(() => AqutterRpcReassembler().add(short), throwsA(isA<AqutterRpcFormatException>()));
+    });
+
+    test('rejects more than four partial messages in flight', () {
+      final reassembler = AqutterRpcReassembler();
+      for (var id = 0; id < aqutterRpcMaxPartialMessages; id++) {
+        reassembler.add(parts(id, 2).first);
+      }
+      expect(reassembler.pending, aqutterRpcMaxPartialMessages);
+      expect(() => reassembler.add(parts(99, 2).first), throwsA(isA<AqutterRpcFormatException>()));
+    });
+
+    test('rejects a reassembled message that is itself a part', () {
+      final inner = encodeAqutterRpcFrame(
+        AqutterRpcFrame(type: AqutterRpcFrameType.part, id: 1, partSeq: 0, partTotal: 2, partData: Uint8List(aqutterRpcPartBytes)),
+      );
+      expect(inner.length, greaterThan(aqutterRpcPartBytes));
+      Uint8List piece(int seq, Uint8List data) => encodeAqutterRpcFrame(
+            AqutterRpcFrame(type: AqutterRpcFrameType.part, id: 8, partSeq: seq, partTotal: 2, partData: data),
+          );
+      final reassembler = AqutterRpcReassembler();
+      expect(reassembler.add(piece(0, Uint8List.sublistView(inner, 0, aqutterRpcPartBytes))), isNull);
+      expect(() => reassembler.add(piece(1, Uint8List.sublistView(inner, aqutterRpcPartBytes))), throwsA(isA<AqutterRpcFormatException>()));
+    });
+  });
 }

@@ -45,10 +45,22 @@ header = { "t", "id"?, "name"?, "ch"?, "p"?, "e"?, "blobs": [長度…] }
 | `res` | Dart → 網頁 | `id` |
 | `err` | Dart → 網頁 | `id`、`e: { code, message }` |
 | `evt` | Dart → 網頁 | `ch` |
+| `part` | 雙向 | `id`、`seq`、`total`（大訊框的一片，見下方「大資料」） |
 
 - 酬載內任何位置的 `{"$bin": i}` 代表第 `i` 個 blob；`$bin` 是保留鍵。`Uint8List`（及其他 `TypedData`）送出時自動抽成 blob，收到時一律是 `Uint8List`。
-- 整個訊框 ≤ 64 MiB（`aqutterRpcMaxFrameBytes`）。
-- 格式錯誤的訊框或網頁送來不是 `call` 的訊框：以 1002 關閉連線；超過上限以 1009 關閉。
+- 單一 WebSocket 訊息 ≤ 64 MiB（`aqutterRpcMaxFrameBytes`）。
+- 格式錯誤的訊框、分段違規或網頁送來不是 `call` 的訊框：以 1002 關閉連線；單一訊息超過 64 MiB 以 1009 關閉。
+
+## 大資料（自動分段）
+
+使用者不需要處理：編碼後超過 64 MiB 的訊框，傳輸層自動切成每片 16 MiB 的 `part` 訊框送出，接收端收齊後組回原訊框（`AqutterRpcReassembler`）。邏輯訊框總長上限 512 MiB（`aqutterRpcMaxMessageBytes`），超過回 `PAYLOAD_TOO_LARGE`。
+
+```
+part = { "t": "part", "id": <分段訊息編號>, "seq": <0 起算>, "total": <2..32>, "blobs": [<片長>] }  +  該片位元組
+```
+
+- 片必須依序到達；同一方向同時進行的分段訊息 ≤ 4 個；違規以 1002 關閉連線。
+- 組回後整份資料仍在記憶體裡：這解決的是單一訊息上限，不是串流。
 
 ## 錯誤碼
 
@@ -56,7 +68,7 @@ header = { "t", "id"?, "name"?, "ch"?, "p"?, "e"?, "blobs": [長度…] }
 |---|---|
 | `HANDLER_NOT_FOUND` | 沒有該名稱的 handler |
 | `HANDLER_FAILED` | handler 拋出例外、酬載不是物件、結果無法序列化 |
-| `PAYLOAD_TOO_LARGE` | 結果超過訊框上限 |
+| `PAYLOAD_TOO_LARGE` | 結果超過 512 MiB |
 
 `AqutterRpcException` 的任何其他錯誤碼原樣送給網頁。
 

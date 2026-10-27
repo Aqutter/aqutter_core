@@ -8,10 +8,18 @@ import 'package:flutter_test/flutter_test.dart';
 class _Client {
   _Client(this.socket) {
     socket.listen(
-      (data) => _frames.add(decodeAqutterRpcFrame(Uint8List.fromList(data as List<int>))),
+      (data) {
+        final frame = _reassembler.add(Uint8List.fromList(data as List<int>));
+        if (frame != null) {
+          _frames.add(frame);
+        }
+      },
       onDone: () => _closed.complete(),
     );
   }
+
+  final AqutterRpcReassembler _reassembler = AqutterRpcReassembler();
+  int _partId = 0;
 
   final WebSocket socket;
   final StreamController<AqutterRpcFrame> _frames = StreamController<AqutterRpcFrame>.broadcast();
@@ -20,7 +28,9 @@ class _Client {
   Future<void> get closed => _closed.future;
 
   void call(int id, String name, [Object? payload]) {
-    socket.add(encodeAqutterRpcFrame(AqutterRpcFrame(type: AqutterRpcFrameType.call, id: id, name: name, payload: payload)));
+    for (final message in encodeAqutterRpcMessages(AqutterRpcFrame(type: AqutterRpcFrameType.call, id: id, name: name, payload: payload), partId: _partId++)) {
+      socket.add(message);
+    }
   }
 
   Future<AqutterRpcFrame> next() => _frames.stream.first.timeout(const Duration(seconds: 5));
@@ -147,12 +157,27 @@ void main() {
       await client.socket.close();
     });
 
-    test('a result over the frame limit answers PAYLOAD_TOO_LARGE', () async {
-      rpc.registerHandler('t.huge', (_) async => Uint8List(aqutterRpcMaxFrameBytes));
+    test('moves 70 MiB in both directions: the framework splits and reassembles', () async {
+      rpc.registerHandler('t.huge', (payload) async => {'data': payload['data'], 'n': (payload['data'] as Uint8List).length});
       final client = await connect();
+      final data = Uint8List(70 * 1024 * 1024)..fillRange(0, 70 * 1024 * 1024, 3);
+      data[12345] = 42;
       final reply = client.next();
-      client.call(11, 't.huge');
-      expect((await reply).errorCode, aqutterRpcPayloadTooLarge);
+      client.call(11, 't.huge', {'data': data});
+      final result = (await reply).payload as Map<String, dynamic>;
+      expect(result['n'], data.length);
+      expect((result['data'] as Uint8List)[12345], 42);
+      expect((result['data'] as Uint8List).length, data.length);
+      await client.socket.close();
+    });
+
+    test('an event over 64 MiB is split and reassembled too', () async {
+      final client = await connect();
+      final event = client.next();
+      await rpc.emit('t.bigEvent', {'data': Uint8List(66 * 1024 * 1024)});
+      final frame = await event;
+      expect(frame.channel, 't.bigEvent');
+      expect(((frame.payload as Map)['data'] as Uint8List).length, 66 * 1024 * 1024);
       await client.socket.close();
     });
 

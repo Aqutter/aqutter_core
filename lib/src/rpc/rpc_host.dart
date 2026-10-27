@@ -52,6 +52,7 @@ class AqutterRpcHost {
   final AqutterNativeHost _host;
   final Map<String, AqutterRpcHandler> _handlers = {};
   AqutterChannelConnection? _connection;
+  int _nextPartId = 0;
 
   /// 登錄 [name] 的 handler；同名取代舊的。
   void registerHandler(String name, AqutterRpcHandler handler) => _handlers[name] = handler;
@@ -68,15 +69,27 @@ class AqutterRpcHost {
   /// 酬載無法序列化、或訊框超過上限時拋出（呼叫端的程式錯誤）。
   Future<void> emit(String channel, Object? payload) async {
     final connection = _connection;
-    final bytes = encodeAqutterRpcFrame(AqutterRpcFrame(type: AqutterRpcFrameType.evt, channel: channel, payload: payload));
-    connection?.send(bytes);
+    final messages = encodeAqutterRpcMessages(
+      AqutterRpcFrame(type: AqutterRpcFrameType.evt, channel: channel, payload: payload),
+      partId: _nextPartId++,
+    );
+    if (connection != null) {
+      _send(connection, messages);
+    }
+  }
+
+  void _send(AqutterChannelConnection connection, List<Uint8List> messages) {
+    for (final message in messages) {
+      connection.send(message);
+    }
   }
 
   void _onConnection(AqutterChannelConnection connection) {
     _connection?.close(1000, 'replaced');
     _connection = connection;
+    final reassembler = AqutterRpcReassembler();
     connection.messages.listen(
-      (data) => _onMessage(connection, data),
+      (data) => _onMessage(connection, reassembler, data),
       onError: (Object _) => connection.close(),
     );
     unawaited(
@@ -88,14 +101,17 @@ class AqutterRpcHost {
     );
   }
 
-  void _onMessage(AqutterChannelConnection connection, Uint8List data) {
-    final AqutterRpcFrame frame;
+  void _onMessage(AqutterChannelConnection connection, AqutterRpcReassembler reassembler, Uint8List data) {
+    final AqutterRpcFrame? frame;
     try {
-      frame = decodeAqutterRpcFrame(data);
+      frame = reassembler.add(data);
     }
     on AqutterRpcFormatException catch (error) {
       debugPrint('[aqutter-rpc] bad frame: ${error.message}');
       connection.close(data.length > aqutterRpcMaxFrameBytes ? 1009 : 1002, 'BAD_FRAME');
+      return;
+    }
+    if (frame == null) {
       return;
     }
     if (frame.type != AqutterRpcFrameType.call) {
@@ -129,19 +145,19 @@ class AqutterRpcHost {
       _sendError(connection, id, aqutterRpcHandlerFailed, '$error');
       return;
     }
-    final Uint8List bytes;
+    final List<Uint8List> messages;
     try {
-      bytes = encodeAqutterRpcFrame(AqutterRpcFrame(type: AqutterRpcFrameType.res, id: id, payload: result));
+      messages = encodeAqutterRpcMessages(AqutterRpcFrame(type: AqutterRpcFrameType.res, id: id, payload: result), partId: _nextPartId++);
     }
     on AqutterRpcFormatException {
-      _sendError(connection, id, aqutterRpcPayloadTooLarge, 'The result of "${frame.name}" exceeds the frame size limit');
+      _sendError(connection, id, aqutterRpcPayloadTooLarge, 'The result of "${frame.name}" exceeds the message size limit');
       return;
     }
     catch (error) {
       _sendError(connection, id, aqutterRpcHandlerFailed, 'The result of "${frame.name}" cannot be serialized: $error');
       return;
     }
-    connection.send(bytes);
+    _send(connection, messages);
   }
 
   void _sendError(AqutterChannelConnection connection, int id, String code, String message) {

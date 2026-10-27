@@ -9,5 +9,8 @@
 - [x] 匯出、stub、文件與 `.kn-project/project.md`
 - [x] `flutter analyze`、`flutter test`
 
+## Phase 2b — 契約 rev 2：自動分段
+- [x] `part` 訊框、`encodeAqutterRpcMessages`、`AqutterRpcReassembler`、host 送收改用分段、測試向量與測試
+
 ## Phase 3 — 驗證
 - [ ] 需等待 aqutter 與 aqutter-js：Android 實機端對端

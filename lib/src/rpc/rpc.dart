@@ -6,10 +6,16 @@ export 'rpc_frame.dart'
         AqutterRpcFormatException,
         AqutterRpcFrame,
         AqutterRpcFrameType,
+        AqutterRpcReassembler,
         aqutterRpcBinaryKey,
         aqutterRpcMaxFrameBytes,
+        aqutterRpcMaxMessageBytes,
+        aqutterRpcMaxParts,
+        aqutterRpcMaxPartialMessages,
+        aqutterRpcPartBytes,
         decodeAqutterRpcFrame,
-        encodeAqutterRpcFrame;
+        encodeAqutterRpcFrame,
+        encodeAqutterRpcMessages;
 export 'rpc_host.dart'
     show
         AqutterRpcException,
