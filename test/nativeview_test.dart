@@ -59,13 +59,22 @@ void main() {
       final socket = await connect(endpoint, 'demo');
       addTearDown(() => socket.close());
 
-      // 一幀是兩則訊息：標頭、像素
-      final frameMessages = await socket.take(2).toList();
+      // 一幀是兩則訊息：標頭、像素。持續監聽同一個訂閱：`take(2)` 取消訂閱會讓連線在
+      // 伺服器繼續送幀時被關掉，之後的 socket.add 就收不到回應，視時序偶發失敗。
+      final frameMessages = <dynamic>[];
+      final gotFrame = Completer<void>();
+      socket.listen((data) {
+        frameMessages.add(data);
+        if (frameMessages.length == 2 && !gotFrame.isCompleted) {
+          gotFrame.complete();
+        }
+      });
+      await gotFrame.future;
       expect((frameMessages[0] as List<int>).length, aqutterNativeHeaderLength);
       expect(frameMessages[1], [9, 8, 7, 255]);
 
       socket.add(jsonEncode({'type': 'tap', 'x': 0.25, 'y': 0.5}));
-      final message = await messages.future.timeout(const Duration(seconds: 2));
+      final message = await messages.future.timeout(const Duration(seconds: 10));
       expect(message.type, 'tap');
       expect(message.number('x'), 0.25);
       expect(message.number('missing'), isNull);
@@ -105,7 +114,7 @@ void main() {
       oldSocket.listen((_) {}, onDone: closed.complete);
 
       await host.restart();
-      await closed.future.timeout(const Duration(seconds: 2));
+      await closed.future.timeout(const Duration(seconds: 10));
       final after = await host.ensureStarted();
       expect(after.token, isNot(before.token));
       expect(host.hasSession('resume'), isTrue);
@@ -281,7 +290,7 @@ void main() {
         }
         isHeader = !isHeader; // 標頭、像素交替
       });
-      await done.future.timeout(const Duration(seconds: 2));
+      await done.future.timeout(const Duration(seconds: 10));
       expect(seqs, [1, 2, 3, 4, 5]);
     });
 

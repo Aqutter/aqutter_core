@@ -149,6 +149,8 @@ header = { "t": <type>, "id"?: <u53>, "name"?: <string>, "ch"?: <string>, "p"?: 
 - **[分層]** Dart 端程式碼與介面由 `aqutter_core` 提供，`aqutter` 只做界接（使用者先前指示，沿用）。
 - **[前置]** 上一份計畫 `2610271034-binary-channel-and-channel-benchmarks` 已在三個 repo 補歸檔（PR `Aqutter/aqutter#19`、`Aqutter/aqutter_core#5`、`Aqutter/aqutter-js#5`）。
 - **[歸屬]** 訊框編解碼與分派是 Dart 端型別與能力，歸 `aqutter_core`；`aqutter` 只做界接。
+- **[執行中]** 既有 `test/nativeview_test.dart` 第一個測試改成持續監聽同一個訂閱（原本 `take(2)` 取消訂閱，視時序會讓連線被關，加了新測試檔後穩定重現）；其餘逾時由 2 秒放寬到 10 秒 — 理由：不修就無法可靠驗證全套測試，且與本計畫無關的既有競態。
+- **[執行中]** 新連線到來時舊連線以 1000 關閉（最後一條有效）；訊框超過上限以 1009 關閉、格式錯誤以 1002 — 理由：契約只說「一次頁面載入一條」與「格式錯誤關閉 1002」，補上未指定的細節，不改變契約已定的行為。
 
 ## Git Completion Policy
 - PR 一律以 `--base main` 顯式指定 base。

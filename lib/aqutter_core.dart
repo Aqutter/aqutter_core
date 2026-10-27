@@ -38,3 +38,4 @@ export 'package:aqutter_core/src/platform_interface/flutter_webview_platform_int
         MapEdgeInsets;
 export 'src/main.dart';
 export 'src/nativeview/nativeview.dart';
+export 'src/rpc/rpc.dart';
