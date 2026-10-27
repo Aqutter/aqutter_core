@@ -22,6 +22,7 @@ Aqutter 框架（網頁 + Flutter 殼）的 WebView 核心套件：提供 inline
   會被 pub 以「A private package cannot be published.」拒絕，repo 也不保留任何發佈腳本；`dev_packages/*` 因此可以使用 `path:` 依賴。
   日後若要改為發佈，須先讓 `aqutter_core_internal_annotations` 與 `generators` 也能從 pub.dev 解析，
   再移除 `publish_to`。
+- **通用二進位通道**：`AqutterNativeHost.registerChannel` 與 `/channel/<pluginId>.<channel>?token=`（與鏡像共用伺服器與令牌）；只傳二進位，沒有自動重連與背壓。路徑與名稱格式與 `Aqutter/aqutter`（`AqutterPlugin.channels`）、`Aqutter/aqutter-js`（`openBinaryChannel`）成對，改一邊必改另兩邊。
 - **網頁⇄Dart RPC**：`AqutterRpcHost`（`lib/src/rpc/`）以通道 `aqutter.rpc` 承載呼叫、回應、事件與二進位；訊框格式與 `Aqutter/aqutter-js` 的 `src/frame.ts` 成對，兩端以 `test/rpc_frame_vectors.json` 保持一致，改一邊必改另一邊。說明見 `doc/rpc.md`。
 - **對同 repo 的 `dev_packages` 一律用相對 `path:`**，不帶版本約束（`path` 依賴不得同時帶版本）。
 - **版本號以根 `pubspec.yaml` 的 `version` 為唯一來源**，使用端以對應的 git tag 鎖定。
