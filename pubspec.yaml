@@ -7,11 +7,11 @@ repository: https://github.com/Aqutter/aqutter_core
 issue_tracker: https://github.com/Aqutter/aqutter_core/issues
 
 environment:
-  sdk: '>=3.13.0 <4.0.0'
-  # 3.47.4 is the reference Flutter version the framework is built and tested on (see .fvmrc).
+  sdk: '>=3.13.7 <4.0.0'
+  # 3.47.8 is the reference Flutter version the framework is built and tested on (see .fvmrc).
   # No upper bound on purpose; `aqutter doctor` warns when Flutter is newer than the reference.
   # Bump this together with .fvmrc and docs/getting-started.md when the framework upgrades Flutter.
-  flutter: '>=3.47.4'
+  flutter: '>=3.47.8'
 
 dependencies:
   flutter:

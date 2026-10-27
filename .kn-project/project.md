@@ -70,7 +70,7 @@ gh repo set-default Aqutter/aqutter_core
 
 ### 平台基準
 
-對齊 **Flutter 3.47.0 / Dart 3.13.0**。
+對齊 **Flutter 3.47.8 / Dart 3.13.7**。
 
 | 項目 | 現值 |
 | :--- | :--- |
