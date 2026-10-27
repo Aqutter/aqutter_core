@@ -24,7 +24,7 @@ AqutterNative(
 | 項目 | 說明 |
 |---|---|
 | `AqutterNative` | 以 `RepaintBoundary` 包住 `child`，註冊工作階段，依 `fps` 擷取並送出；沒有網頁連線時不擷取 |
-| `AqutterNativeHost` | 單例；`ensureStarted()` 以暫時埠啟動 `127.0.0.1` 的 WebSocket 伺服器，回傳 `{port, token}` |
+| `AqutterNativeHost` | 單例；`ensureStarted()` 以暫時埠啟動 `127.0.0.1` 的 WebSocket 伺服器，回傳 `{port, token}`；`endpoint`（`ValueListenable`）在啟動與每次 `restart()` 之後通知新的端點，供殼注入網頁 |
 | `AqutterNativeSession` | 自訂擷取來源用（不經 `AqutterNative`）：給 `capture` 回呼即可 |
 | `AqutterNativeCapture` | iOS 的 `drawHierarchy` 擷取（PlatformView 用） |
 
@@ -32,7 +32,7 @@ AqutterNative(
 
 ## 連線與安全
 
-路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。令牌每次啟動隨機產生，經 bridge handler `native_endpoint` 交給網頁；令牌錯誤或工作階段不存在一律回 403。localhost 上的其他程式因此無法冒連。網頁的 CSP 需允許 `connect-src ws://127.0.0.1:*`。
+路徑：`ws://127.0.0.1:<port>/native/<sessionId>?token=<token>`。令牌每次啟動隨機產生，由殼以 `AqutterNativeHost.endpoint` 取得後注入網頁的 `window.aqutterEndpoint`（`{port, token}`）；令牌錯誤或工作階段不存在一律回 403。localhost 上的其他程式因此無法冒連。網頁的 CSP 需允許 `connect-src ws://127.0.0.1:*`。
 
 ## 通用二進位通道
 

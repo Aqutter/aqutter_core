@@ -32,7 +32,7 @@ class AqutterRpcException implements Exception {
 /// 網頁與 Dart 之間的多工 RPC：呼叫、回應、事件與二進位共用**一條**本機連線。
 ///
 /// 建立在 [AqutterNativeHost] 的通用二進位通道上（通道名 [aqutterRpcChannelName]），
-/// 沿用其伺服器與令牌；網頁以 `native_endpoint` 取得埠與令牌後連線。
+/// 沿用其伺服器與令牌；網頁讀取殼注入的 `window.aqutterEndpoint` 取得埠與令牌後連線。
 ///
 /// 一次頁面載入一條連線；新連線到來時，舊連線以 1000 關閉（最後一條有效）。
 /// 事件只送給目前的連線，沒有連線時直接丟棄（不排隊）。

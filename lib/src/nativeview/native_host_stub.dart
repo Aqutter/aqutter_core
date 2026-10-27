@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'native_channel.dart';
 import 'native_session.dart';
 
@@ -19,6 +21,9 @@ class AqutterNativeHost {
   AqutterNativeHost._();
 
   static final AqutterNativeHost instance = AqutterNativeHost._();
+
+  /// Web 平台沒有伺服器，值恆為 `null`（與原生版介面一致）。
+  final ValueListenable<AqutterNativeEndpoint?> endpoint = ValueNotifier<AqutterNativeEndpoint?>(null);
 
   Future<AqutterNativeEndpoint> ensureStarted() => throw UnsupportedError('Native host is not available on web');
 

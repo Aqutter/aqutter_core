@@ -125,6 +125,54 @@ void main() {
       expect(frame[1], [1, 2, 3, 255]);
     });
 
+    test('endpoint is null until started, then notifies once per start and once per restart with the new endpoint', () async {
+      expect(host.endpoint.value, isNull);
+      final seen = <AqutterNativeEndpoint?>[];
+      void listener() => seen.add(host.endpoint.value);
+      host.endpoint.addListener(listener);
+      addTearDown(() => host.endpoint.removeListener(listener));
+
+      final first = await host.ensureStarted();
+      expect(host.endpoint.value, same(first));
+      expect(seen, [first]);
+
+      await host.restart();
+      final second = await host.ensureStarted();
+      expect(second.port, isNonZero);
+      expect(second.token, isNot(first.token));
+      expect(host.endpoint.value, same(second));
+      // 重啟期間先把值清空，但那一步不通知：監聽者只會看到新的端點
+      expect(seen, [first, second]);
+    });
+
+    test('endpoint is already connectable when the listener is told about it', () async {
+      Future<WebSocket>? connected;
+      void listener() {
+        final endpoint = host.endpoint.value;
+        if (endpoint != null) {
+          connected = WebSocket.connect('ws://127.0.0.1:${endpoint.port}/native/missing?token=${endpoint.token}');
+        }
+      }
+
+      host.endpoint.addListener(listener);
+      addTearDown(() => host.endpoint.removeListener(listener));
+      await host.ensureStarted();
+      // 沒有這個工作階段，伺服器會拒絕升級；重點是 TCP 連得上（回的是 403 而不是 connection refused）
+      await expectLater(connected, throwsA(isA<WebSocketException>().having((e) => e.message, 'message', isNot(contains('refused')))));
+    });
+
+    test('stop clears the endpoint and tells the listeners', () async {
+      await host.ensureStarted();
+      final seen = <AqutterNativeEndpoint?>[];
+      void listener() => seen.add(host.endpoint.value);
+      host.endpoint.addListener(listener);
+      addTearDown(() => host.endpoint.removeListener(listener));
+
+      await host.stop();
+      expect(host.endpoint.value, isNull);
+      expect(seen, [null]);
+    });
+
     test('a per-session maxInFlight (set by the page via a config message) limits unacknowledged frames', () async {
       final session = AqutterNativeSession(
         id: 'inflight',
