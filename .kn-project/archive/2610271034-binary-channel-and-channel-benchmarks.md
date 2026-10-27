@@ -1,6 +1,6 @@
 # 2610271034 - binary-channel-and-channel-benchmarks
 
-- Created: 2026-10-27 10:34 / Archived: 2026-10-28 10:00
+- Created: 2026-10-27 10:34 / Archived: 2026-10-27 10:00
 - Issue: Aqutter/aqutter_core#2
 - Milestone: N/A / Base Branch: main
 
@@ -23,6 +23,7 @@
 - **[收尾語意]** 網頁端關閉時 `done` 要完成（`dart:io` 的 `WebSocket.done` 要等本地也關閉，不能直接用）；`restart()` 先關通道連線再關伺服器，否則連線被強制中斷而收不到 1001。
 
 ## Deviations
+- 歸檔日期更正：原寫 `2026-10-28`（誤用日期），更正為 `2026-10-27`。
 - 未歸檔就合併：PR #3 合併時尚未歸檔，歸檔另開 PR 補上；wiki 沒有新增頁（現有 wiki 只有舊式 features 頁，通道文件在 `doc/nativeview.md`）。
 
 ## Impact Files
