@@ -46,7 +46,8 @@ class AqutterNativeHost with WidgetsBindingObserver {
   static final AqutterNativeHost instance = AqutterNativeHost._();
 
   HttpServer? _server;
-  AqutterNativeEndpoint? _endpoint;
+  final _EndpointNotifier _endpointNotifier = _EndpointNotifier();
+  AqutterNativeEndpoint? get _endpoint => _endpointNotifier.value;
   Future<AqutterNativeEndpoint>? _starting;
   bool _observing = false;
   Timer? _autoTimer;
@@ -68,6 +69,12 @@ class AqutterNativeHost with WidgetsBindingObserver {
   /// 網頁回報看不到的連線（預設看得到）。
   final Set<WebSocket> _hidden = {};
 
+  /// 目前的連線資訊；伺服器尚未啟動或已 [stop] 時為 `null`。
+  ///
+  /// 殼用它把埠與令牌注入網頁（`window.aqutterEndpoint`），不再讓網頁自己來要。啟動完成與每次 [restart]
+  /// 之後各通知一次，且通知時新伺服器已開始監聽；[restart] 期間舊值先被清為 `null`，這一步**不**通知。
+  ValueListenable<AqutterNativeEndpoint?> get endpoint => _endpointNotifier;
+
   /// 啟動伺服器（冪等）並回傳連線資訊。
   Future<AqutterNativeEndpoint> ensureStarted() {
     final existing = _endpoint;
@@ -86,11 +93,13 @@ class AqutterNativeHost with WidgetsBindingObserver {
     final random = Random.secure();
     final token = base64UrlEncode(List<int>.generate(24, (_) => random.nextInt(256)));
     _server = server;
-    _endpoint = AqutterNativeEndpoint(port: server.port, token: token);
+    final endpoint = AqutterNativeEndpoint(port: server.port, token: token);
     server.listen(_onRequest);
     _autoTimer ??= Timer.periodic(const Duration(seconds: 1), (_) => _tickAuto());
     debugPrint('[aqutter-native] ws server on ws://127.0.0.1:${server.port}');
-    return _endpoint!;
+    // 已開始監聽才指派，監聽者收到時該埠就能連線
+    _endpointNotifier.update(endpoint);
+    return endpoint;
   }
 
   @override
@@ -112,7 +121,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
   Future<void> restart() async {
     final server = _server;
     _server = null;
-    _endpoint = null;
+    _endpointNotifier.update(null, notify: false);
     _starting = null;
     _closeChannelSockets(WebSocketStatus.goingAway);
     await server?.close(force: true);
@@ -405,7 +414,7 @@ class AqutterNativeHost with WidgetsBindingObserver {
     _autoControllers.clear();
     _framesSent.clear();
     _server = null;
-    _endpoint = null;
+    _endpointNotifier.update(null);
     _starting = null;
     if (_observing) {
       _observing = false;
@@ -468,5 +477,21 @@ class _SocketChannelConnection implements AqutterChannelConnection {
   @override
   void close([int? code, String? reason]) {
     _socket.close(code, reason);
+  }
+}
+
+/// [AqutterNativeHost.endpoint] 的實作：和 `ValueNotifier` 的差別是可以只更新值、不通知（重啟期間清空用）。
+class _EndpointNotifier extends ChangeNotifier implements ValueListenable<AqutterNativeEndpoint?> {
+  AqutterNativeEndpoint? _value;
+
+  @override
+  AqutterNativeEndpoint? get value => _value;
+
+  /// 指派新值；[notify] 為 false 時只更新值，不通知監聽者。
+  void update(AqutterNativeEndpoint? next, {bool notify = true}) {
+    _value = next;
+    if (notify) {
+      notifyListeners();
+    }
   }
 }

@@ -2,7 +2,7 @@
 
 網頁與 Dart 之間的呼叫、回應、事件與二進位共用**一條**本機連線，不經 `callHandler` 的 JSON 字串化，也不用 `evaluateJavascript` 組字串。網頁端見 `@aqutter/aqutter`（`callFlutter`、`callPlugin`、`onFlutterEvent`、`onPluginEvent`）。
 
-建立在 [通用二進位通道](nativeview.md#通用二進位通道) 上：通道名 `aqutter.rpc`，沿用 `AqutterNativeHost` 的伺服器與令牌。網頁以 bridge handler `native_endpoint` 取得埠與令牌後連線：
+建立在 [通用二進位通道](nativeview.md#通用二進位通道) 上：通道名 `aqutter.rpc`，沿用 `AqutterNativeHost` 的伺服器與令牌。網頁讀取殼注入的 `window.aqutterEndpoint`（`{port, token}`）後連線：
 
 ```
 ws://127.0.0.1:<port>/channel/aqutter.rpc?token=<token>
@@ -77,7 +77,7 @@ part = { "t": "part", "id": <分段訊息編號>, "seq": <0 起算>, "total": <2
 - 多個呼叫**並行**處理，回應順序不保證。
 - 一次頁面載入一條連線；新連線到來時，舊連線以 1000 關閉（最後一條有效）。
 - 事件只送給目前的連線；連線關閉後送出的事件直接丟棄。
-- `AqutterNativeHost.restart()` 與 `stop()` 會以 1001 關閉連線；網頁端負責重連。
+- `AqutterNativeHost.restart()` 與 `stop()` 會以 1001 關閉連線；網頁端負責重連，且每次重連前重新讀取殼注入的 `window.aqutterEndpoint`（重啟後埠與令牌都會換新；殼在 `AqutterNativeHost.endpoint` 通知後更新該全域）。
 - 不支援 Web 平台（沒有 `dart:io`）：實例可建立，登錄與 `emit` 可安全呼叫，但永遠沒有連線。
 
 測試向量 `test/rpc_frame_vectors.json` 與 `aqutter-js` 共用，兩端的編解碼以它保持一致。
