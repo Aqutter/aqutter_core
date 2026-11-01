@@ -65,6 +65,13 @@ flutter {
     source '../..'
 }
 
+// Kotlin 與 Java 的 JVM target 必須一致，否則 Gradle 會拒絕編譯
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.6.2'
