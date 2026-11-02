@@ -226,6 +226,15 @@ open class InputAwareWebView : WebView {
     if (useHybridComposition) {
       return super.checkInputConnectionProxy(view)
     }
+    // The system can call this with a null view. There is no proxy view to adapt then, so leave the
+    // state as it is.
+    if (view == null) {
+      return super.checkInputConnectionProxy(view)
+    }
+    // A view that is not attached to a window has no handler. That happens while the window changes,
+    // for example when a <video> enters fullscreen. Creating the adapter would crash on the missing
+    // handler, so skip it without remembering the view: the system asks again once it is attached.
+    val imeHandler = view.handler ?: return super.checkInputConnectionProxy(view)
     // Check to see if the view param is WebView's ThreadedInputConnectionProxyView.
     val previousProxy = threadedInputConnectionProxyView
     threadedInputConnectionProxyView = view
@@ -246,8 +255,8 @@ open class InputAwareWebView : WebView {
     val newProxyAdapterView =
       ThreadedInputConnectionProxyAdapterView(
         /*containerView=*/ containerView!!,
-        /*targetView=*/ view!!,
-        /*imeHandler=*/ view.handler)
+        /*targetView=*/ view,
+        /*imeHandler=*/ imeHandler)
     proxyAdapterView = newProxyAdapterView
     setInputConnectionTarget(/*targetView=*/ newProxyAdapterView)
     return super.checkInputConnectionProxy(view)
