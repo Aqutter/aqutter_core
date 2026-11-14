@@ -80,7 +80,7 @@ gh repo set-default Aqutter/aqutter_core
 | Kotlin Gradle Plugin | **2.4.20**（example 的宣告值；library 用 AGP 內建 Kotlin，example app 已遷移到 Built-in Kotlin） |
 | `compileSdk` / `targetSdk` | 取 `flutter.compileSdkVersion`（跟隨 Flutter SDK，非硬寫）=36 |
 | `minSdkVersion` | **24**（Flutter 支援下限；app 端低於 23 即建置失敗） |
-| iOS 部署目標 | **15.0**（套件 SPM/podspec 與 example 專案一致） |
+| iOS 部署目標 | **16.0**（套件 SPM/podspec 與 example 專案一致） |
 | macOS 部署目標 | **12.0**（同上） |
 
 - iOS / macOS **同時**提供 `Package.swift`（SPM）與 `.podspec`（CocoaPods），兩者並存。
