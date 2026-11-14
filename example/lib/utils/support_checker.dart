@@ -1717,12 +1717,16 @@ class SupportChecker {
           category: 'Core',
         ),
         ApiEventDefinition(
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           name: AqutterPlatformWebViewCreationParamsProperty.onLoadError.name,
           description: 'Called when a page fails to load.',
           className: className,
           category: 'Core',
         ),
         ApiEventDefinition(
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           name: AqutterPlatformWebViewCreationParamsProperty.onLoadHttpError.name,
           description: 'Called when an HTTP error is received.',
           className: className,
@@ -1894,6 +1898,8 @@ class SupportChecker {
         // Download events
         ApiEventDefinition(
           name:
+              // Intentionally exercises the deprecated API: this example is an API test bench.
+              // ignore: deprecated_member_use
               AqutterPlatformWebViewCreationParamsProperty.onDownloadStartRequest.name,
           description: 'Called when a download is requested.',
           className: className,
@@ -2034,6 +2040,8 @@ class SupportChecker {
 
         // Icon events
         ApiEventDefinition(
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           name: AqutterPlatformWebViewCreationParamsProperty.onReceivedIcon.name,
           description: 'Called when a favicon is received.',
           className: className,

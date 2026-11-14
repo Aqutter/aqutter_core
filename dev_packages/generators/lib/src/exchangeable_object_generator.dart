@@ -40,6 +40,14 @@ final _coreCheckerSupportedPlatforms = TypeChecker.typeNamedLiterally(
   inPackage: _annotationsPackage,
 );
 
+/// The type's display string without any nullability markers (`Uri?` -> `Uri`).
+///
+/// Replaces `getDisplayString(withNullability: false)`, which analyzer deprecated: the
+/// argument is no longer honoured, so the markers are stripped here to keep the
+/// generator's type comparisons ("Uri", "AqutterWebUri", "Color"...) unchanged.
+String _plainDisplayString(DartType type) =>
+    type.getDisplayString().replaceAll('?', '');
+
 class ExchangeableObjectGenerator
     extends GeneratorForAnnotation<ExchangeableObject> {
   @override
@@ -397,11 +405,9 @@ class ExchangeableObjectGenerator
                 fieldTypeElement.name!.replaceFirst("_", "") +
                     '.fromValue($deprecatedFieldName${deprecatedIsNullable ? '?' : ''}.toValue())${!isNullable ? '!' : ''}',
               );
-            } else if (deprecatedField.type.getDisplayString(
-                      withNullability: false,
-                    ) ==
+            } else if (_plainDisplayString(deprecatedField.type) ==
                     "Uri" &&
-                newFieldElement.type.getDisplayString(withNullability: false) ==
+                _plainDisplayString(newFieldElement.type) ==
                     "AqutterWebUri") {
               if (deprecatedIsNullable) {
                 classBuffer.write(
@@ -753,7 +759,7 @@ class ExchangeableObjectGenerator
     // remove class reference terminating with "_"
     final classNameReference = fieldTypeElement?.name?.replaceFirst("_", "");
     final isNullable = Util.typeIsNullable(elementType);
-    final displayString = elementType.getDisplayString(withNullability: false);
+    final displayString = _plainDisplayString(elementType);
     if (displayString == "Uri") {
       if (!isNullable) {
         return "(Uri.tryParse($value) ?? Uri())";
@@ -884,7 +890,7 @@ class ExchangeableObjectGenerator
   String getToMapValue(String fieldName, DartType elementType) {
     final fieldTypeElement = elementType.element;
     final isNullable = Util.typeIsNullable(elementType);
-    final displayString = elementType.getDisplayString(withNullability: false);
+    final displayString = _plainDisplayString(elementType);
     if (displayString == "Uri") {
       return fieldName + (isNullable ? '?' : '') + '.toString()';
     } else if (displayString == "AqutterWebUri") {

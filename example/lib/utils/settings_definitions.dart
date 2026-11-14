@@ -344,6 +344,8 @@ Map<String, List<SettingDefinition>> getSettingDefinitions() {
         description: 'Use Flutter Hybrid Composition',
         type: SettingType.boolean,
         defaultValue: true,
+        // Intentionally exercises the deprecated API: this example is an API test bench.
+        // ignore: deprecated_member_use
         property: AqutterWebViewSettingsProperty.useHybridComposition,
       ),
     ],

@@ -1268,9 +1268,13 @@ class _WebViewTesterScreenState extends State<WebViewTesterScreen>
       // ============================================================
 
       // 49. onReceivedIcon
+      // Intentionally exercises the deprecated API: this example is an API test bench.
+      // ignore: deprecated_member_use
       onReceivedIcon: (controller, icon) {
         _logEvent(
           EventType.ui,
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           AqutterPlatformWebViewCreationParamsProperty.onReceivedIcon.name,
           data: {'iconSize': icon.length},
         );

@@ -26,6 +26,8 @@ void webViewWindows() {
             initialFile:
                 "test_assets/in_app_webview_on_create_window_test.html",
             initialSettings: AqutterWebViewSettings(
+              // Intentionally exercises the deprecated API: this example is an API test bench.
+              // ignore: deprecated_member_use
               clearCache: true,
               javaScriptCanOpenWindowsAutomatically: true,
             ),
@@ -68,6 +70,8 @@ void webViewWindows() {
             initialFile:
                 "test_assets/in_app_webview_on_create_window_test.html",
             initialSettings: AqutterWebViewSettings(
+              // Intentionally exercises the deprecated API: this example is an API test bench.
+              // ignore: deprecated_member_use
               clearCache: true,
               javaScriptCanOpenWindowsAutomatically: true,
               supportMultipleWindows: true,
@@ -98,6 +102,8 @@ void webViewWindows() {
           child: AqutterWebView(
             key: GlobalKey(),
             windowId: windowId,
+            // Intentionally exercises the deprecated API: this example is an API test bench.
+            // ignore: deprecated_member_use
             initialSettings: AqutterWebViewSettings(clearCache: true),
             onWebViewCreated: (controller) {
               windowControllerCompleter.complete(controller);
@@ -331,6 +337,8 @@ void webViewWindows() {
             key: GlobalKey(),
             initialUrlRequest: AqutterURLRequest(url: TEST_WEB_PLATFORM_URL_1),
             initialSettings: AqutterWebViewSettings(
+              // Intentionally exercises the deprecated API: this example is an API test bench.
+              // ignore: deprecated_member_use
               clearCache: true,
               javaScriptCanOpenWindowsAutomatically: true,
             ),

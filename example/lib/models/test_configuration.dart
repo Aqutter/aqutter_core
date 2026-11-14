@@ -1322,8 +1322,8 @@ class TestConfigurationManager extends ChangeNotifier {
 
   /// Reorder custom test steps
   void reorderCustomSteps(int oldIndex, int newIndex) {
+    // newIndex is already adjusted for the removed item (ReorderableListView.onReorderItem).
     final steps = [..._currentConfig.customSteps];
-    if (newIndex > oldIndex) newIndex--;
     final step = steps.removeAt(oldIndex);
     steps.insert(newIndex, step);
 
