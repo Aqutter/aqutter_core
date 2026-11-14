@@ -10,7 +10,7 @@ Aqutter 框架（網頁 + Flutter 殼）的 WebView 核心套件：提供 inline
 | :--- | :--- |
 | Dart／Flutter | Dart `^3.8.0`、Flutter `>=3.32.0` |
 | Android | `minSdk 24` |
-| iOS | 15.0 以上 |
+| iOS | 16.0 以上 |
 | macOS | 12.0 以上 |
 | Windows | `PATH` 中需有 [NuGet CLI](https://learn.microsoft.com/en-us/nuget/install-nuget-client-tools?tabs=windows#nugetexe-cli) |
 | Linux | 需 WPE 2.0 WebKit，見 [doc/linux-wpe-backend.md](doc/linux-wpe-backend.md) |
