@@ -230,7 +230,7 @@ class AqutterWebViewSettings {
   ///
   ///**Officially Supported Platforms/Implementations**:
   ///- Android WebView:
-  ///    - [AqutterAndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS] additionally requires API 34+, Impeller running on Vulkan, and the embedding application to opt in -- a plugin cannot turn it on for the application. Apps opt in with the `io.flutter.embedding.android.EnableHcpp` manifest meta-data (used by release builds) or `flutter run --enable-hcpp` during development. When any requirement is missing it falls back to [AqutterAndroidCompositionMode.TEXTURE_LAYER_HYBRID_COMPOSITION].
+  ///    - [AqutterAndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS] additionally requires API 34+, Impeller running on Vulkan, and the embedding application to opt in -- a plugin cannot turn it on for the application. Apps opt in with the `io.flutter.embedding.android.EnableHcpp` manifest meta-data (used by release builds) or `flutter config --enable-hcpp` during development (Flutter 3.50 and later; an explicit `false` in the manifest wins). When any requirement is missing it falls back to [AqutterAndroidCompositionMode.TEXTURE_LAYER_HYBRID_COMPOSITION].
   AqutterAndroidCompositionMode? androidCompositionMode;
 
   ///Sets the path to the Application Caches files. In order for the Application Caches API to be enabled, this option must be set a path to which the application can write.
@@ -3449,7 +3449,7 @@ enum AqutterWebViewSettingsProperty {
   ///
   ///**Officially Supported Platforms/Implementations**:
   ///- Android WebView:
-  ///    - [AqutterAndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS] additionally requires API 34+, Impeller running on Vulkan, and the embedding application to opt in -- a plugin cannot turn it on for the application. Apps opt in with the `io.flutter.embedding.android.EnableHcpp` manifest meta-data (used by release builds) or `flutter run --enable-hcpp` during development. When any requirement is missing it falls back to [AqutterAndroidCompositionMode.TEXTURE_LAYER_HYBRID_COMPOSITION].
+  ///    - [AqutterAndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS] additionally requires API 34+, Impeller running on Vulkan, and the embedding application to opt in -- a plugin cannot turn it on for the application. Apps opt in with the `io.flutter.embedding.android.EnableHcpp` manifest meta-data (used by release builds) or `flutter config --enable-hcpp` during development (Flutter 3.50 and later; an explicit `false` in the manifest wins). When any requirement is missing it falls back to [AqutterAndroidCompositionMode.TEXTURE_LAYER_HYBRID_COMPOSITION].
   ///
   ///Use the [AqutterWebViewSettings.isPropertySupported] method to check if this property is supported at runtime.
   ///{@endtemplate}

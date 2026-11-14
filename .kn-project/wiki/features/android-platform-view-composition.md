@@ -70,7 +70,8 @@ opt-in 有兩條路徑，最終都落到引擎層的 `enable-hcpp-and-surface-co
 | 情境 | 做法 |
 | :--- | :--- |
 | Release build | `AndroidManifest.xml` 加入 `io.flutter.embedding.android.EnableHcpp` = `true` |
-| 開發期 | `flutter run --enable-hcpp`（隱藏旗標，`--help` 不會列出） |
+| 開發期（Flutter 3.50 起） | `flutter config --enable-hcpp`（官方旗標；manifest 明寫 `false` 時以 manifest 為準） |
+| 開發期（3.50 以前） | `flutter run --enable-hcpp`（隱藏旗標，`--help` 不會列出） |
 
 > [!CAUTION]
 > **不要為了 HCPP 而在 manifest 強制 `io.flutter.embedding.android.ImpellerBackend` = `vulkan`。**
@@ -121,9 +122,9 @@ deprecated 的 `useHybridComposition` 有三個字面預設值，改動時必須
   `setSettings` 改不動。
 - **與上游行為分歧**。上游預設 HC；從上游遷移且依賴 HC 行為的使用端，需自行指定
   `AqutterAndroidCompositionMode.HYBRID_COMPOSITION` 還原。
-- **未 opt-in 的 app 不受自動選擇影響**。沒有宣告 `EnableHcpp`（或未以 `--enable-hcpp`
+- **未 opt-in 的 app 不受自動選擇影響**。沒有宣告 `EnableHcpp`（或未開 `flutter config --enable-hcpp`、未以 `--enable-hcpp`
   執行）時支援度為 `false`，自動選擇一律得到 TLHC。
-- **HCPP 的驗證涵蓋兩台裝置**（一台 Android 16 實機、一台 API 36 模擬器），非裝置矩陣。
+- **HCPP 的驗證涵蓋三台裝置**（一台 Android 16 實機、一台 API 36 模擬器、一台 API 32 模擬器；Flutter 3.50.0 下重驗），非裝置矩陣。
   模擬器需強制 Vulkan 後端才走得到 HCPP，實機不需要。
 
 ## References
