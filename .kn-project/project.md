@@ -72,7 +72,7 @@ gh repo set-default Aqutter/aqutter_core
 
 ### 平台基準
 
-對齊 **Flutter 3.50.0 / Dart 3.14.0**（2026-11-14 自 3.47.8 / 3.13.7 升級；`flutter analyze` 0 error／0 warning、`flutter test` 125 項通過）。AGP 與 Kotlin 已對齊 3.50 的新範本預設。example 已移除未使用的 flutter_downloader，file_picker 升到 12.3；3.50 建置不再有套用 KGP 的 plugin 警告。
+對齊 **Flutter 3.50.0 / Dart 3.14.0**（2026-11-14 自 3.47.8 / 3.13.7 升級；`flutter analyze` 0 error／0 warning、`flutter test` 125 項通過）。AGP 與 Kotlin 已對齊 3.50 的新範本預設。example 已移除未使用的 flutter_downloader，file_picker 升到 12.3；3.50 建置不再有套用 KGP 的 plugin 警告。example 也已從已棄用的 `package:flutter/material.dart` 遷到 `package:material_ui/material_ui.dart`（連同 `intl` 升到 0.20）；`lib/` 與 example 的 Material 棄用警告皆為 0。
 
 | 項目 | 現值 |
 | :--- | :--- |
