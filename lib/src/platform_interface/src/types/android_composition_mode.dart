@@ -39,8 +39,10 @@ class AqutterAndroidCompositionMode_ {
   ///<meta-data android:name="io.flutter.embedding.android.EnableHcpp" android:value="true" />
   ///```
   ///
-  ///in its `AndroidManifest.xml` (this is what release builds use), or by running with
-  ///`flutter run --enable-hcpp` during development.
+  ///in its `AndroidManifest.xml` (this is what release builds use), or, during development,
+  ///with `flutter config --enable-hcpp` (Flutter 3.50 and later; earlier versions use the hidden
+  ///`flutter run --enable-hcpp` flag). An explicit `android:value="false"` in the manifest wins
+  ///over the config flag.
   ///
   ///When any requirement is missing the WebView falls back to
   ///[TEXTURE_LAYER_HYBRID_COMPOSITION]; nothing throws and nothing goes blank.

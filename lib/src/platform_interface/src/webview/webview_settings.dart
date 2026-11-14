@@ -1212,8 +1212,8 @@ as it can cause framerate drops on animations in Android 9 and lower (see [Hybri
             """[AqutterAndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS] additionally requires API 34+,
 Impeller running on Vulkan, and the embedding application to opt in -- a plugin cannot turn it on
 for the application. Apps opt in with the `io.flutter.embedding.android.EnableHcpp` manifest
-meta-data (used by release builds) or `flutter run --enable-hcpp` during development. When any
-requirement is missing it falls back to
+meta-data (used by release builds) or `flutter config --enable-hcpp` during development (Flutter
+3.50 and later; an explicit `false` in the manifest wins). When any requirement is missing it falls back to
 [AqutterAndroidCompositionMode.TEXTURE_LAYER_HYBRID_COMPOSITION].""",
       ),
     ],
