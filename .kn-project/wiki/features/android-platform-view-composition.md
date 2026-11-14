@@ -26,7 +26,7 @@ TLHC 在不支援的裝置上由 Flutter 引擎自動退回 HC。HCPP 在條件�
 > [!NOTE]
 > Flutter 官方的 platform views 文件把 HC 與 TLHC 的 API 對應寫混了（宣稱 HC 用
 > `initSurfaceAndroidView`）。上表以 Flutter 3.47 的
-> `packages/flutter/lib/src/services/platform_views.dart` 為準。
+> `packages/flutter/lib/src/services/platform_views.dart` 為準（升到 3.50 後未重新核對）。
 
 ## 設定方式
 
