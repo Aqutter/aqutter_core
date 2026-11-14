@@ -89,6 +89,8 @@ void programmaticScroll() {
     final shouldSkipTest2 =
         kIsWeb ||
         !AqutterWebViewSettings.isPropertySupported(
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           AqutterWebViewSettingsProperty.useHybridComposition,
         );
 

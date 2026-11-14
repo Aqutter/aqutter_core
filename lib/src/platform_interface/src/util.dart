@@ -517,10 +517,14 @@ extension HexColor on Color {
   /// Prefixes a hash sign if [leadingHashSign] is set to `true` (default is `true`).
   String toHex({bool leadingHashSign = true}) =>
       '${leadingHashSign ? '#' : ''}'
-      '${alpha.toRadixString(16).padLeft(2, '0')}'
-      '${red.toRadixString(16).padLeft(2, '0')}'
-      '${green.toRadixString(16).padLeft(2, '0')}'
-      '${blue.toRadixString(16).padLeft(2, '0')}';
+      '${_channelToByte(a).toRadixString(16).padLeft(2, '0')}'
+      '${_channelToByte(r).toRadixString(16).padLeft(2, '0')}'
+      '${_channelToByte(g).toRadixString(16).padLeft(2, '0')}'
+      '${_channelToByte(b).toRadixString(16).padLeft(2, '0')}';
+
+  /// Converts a normalized color channel (0.0-1.0) to its 8-bit value.
+  static int _channelToByte(double channel) =>
+      (channel * 255.0).round().clamp(0, 255);
 }
 
 extension MapSize on Size {

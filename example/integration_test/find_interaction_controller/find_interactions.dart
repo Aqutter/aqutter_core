@@ -15,6 +15,8 @@ void findInteractions() {
           initialFile: "test_assets/in_app_webview_initial_file_test.html",
           findInteractionController: findInteractionController,
           initialSettings: AqutterWebViewSettings(
+            // Intentionally exercises the deprecated API: this example is an API test bench.
+            // ignore: deprecated_member_use
             clearCache: true,
             isFindInteractionEnabled: true,
           ),
@@ -100,6 +102,8 @@ void findInteractions() {
           key: GlobalKey(),
           initialFile: "test_assets/in_app_webview_initial_file_test.html",
           initialSettings: AqutterWebViewSettings(
+            // Intentionally exercises the deprecated API: this example is an API test bench.
+            // ignore: deprecated_member_use
             clearCache: true,
             isFindInteractionEnabled: false,
           ),

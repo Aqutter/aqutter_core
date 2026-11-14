@@ -19,6 +19,8 @@ void javascriptDialogs() {
         child: AqutterWebView(
           key: GlobalKey(),
           initialFile: "test_assets/in_app_webview_on_js_dialog_test.html",
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           initialSettings: AqutterWebViewSettings(clearCache: true),
           onWebViewCreated: (controller) {
             controllerCompleter.complete(controller);

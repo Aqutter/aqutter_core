@@ -20,6 +20,8 @@ void onLoadResourceWithCustomScheme() {
           initialFile:
               "test_assets/in_app_webview_on_load_resource_custom_scheme_test.html",
           initialSettings: AqutterWebViewSettings(
+            // Intentionally exercises the deprecated API: this example is an API test bench.
+            // ignore: deprecated_member_use
             clearCache: true,
             resourceCustomSchemes: ["my-special-custom-scheme"],
           ),

@@ -19,6 +19,8 @@ void safeBrowsing() {
             initialSettings: AqutterWebViewSettings(
               // if I set javaScriptEnabled to true, it will crash!
               javaScriptEnabled: false,
+              // Intentionally exercises the deprecated API: this example is an API test bench.
+              // ignore: deprecated_member_use
               clearCache: true,
               safeBrowsingEnabled: true,
             ),

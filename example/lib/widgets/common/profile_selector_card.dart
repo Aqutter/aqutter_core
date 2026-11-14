@@ -132,7 +132,7 @@ class ProfileSelectorCard extends StatelessWidget {
             Expanded(
               child: DropdownButtonFormField<String?>(
                 isExpanded: true,
-                value: settingsManager.currentProfileId,
+                initialValue: settingsManager.currentProfileId,
                 decoration: InputDecoration(
                   labelText: 'Settings Profile',
                   border: const OutlineInputBorder(),
@@ -233,7 +233,7 @@ class ProfileSelectorCard extends StatelessWidget {
             Expanded(
               child: DropdownButtonFormField<String?>(
                 isExpanded: true,
-                value: settingsManager.currentEnvironmentProfileId,
+                initialValue: settingsManager.currentEnvironmentProfileId,
                 decoration: InputDecoration(
                   labelText: 'Environment Profile',
                   border: const OutlineInputBorder(),

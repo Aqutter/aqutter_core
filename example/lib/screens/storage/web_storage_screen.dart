@@ -640,6 +640,8 @@ class _WebStorageScreenState extends State<WebStorageScreen>
                   onLoadStop: (controller, url) {
                     setState(() => _webViewReady = true);
                   },
+                  // Intentionally exercises the deprecated API: this example is an API test bench.
+                  // ignore: deprecated_member_use
                   onLoadError: (controller, url, code, message) {
                     _recordMethodResult(
                       AqutterPlatformWebViewControllerMethod.loadUrl.name,
@@ -650,7 +652,7 @@ class _WebStorageScreenState extends State<WebStorageScreen>
                 ),
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
+                    color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   padding: const EdgeInsets.symmetric(

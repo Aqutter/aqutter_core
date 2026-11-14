@@ -2,6 +2,8 @@ part of 'main.dart';
 
 void onReceivedIcon() {
   final shouldSkip = !AqutterWebView.isPropertySupported(
+    // Intentionally exercises the deprecated API: this example is an API test bench.
+    // ignore: deprecated_member_use
     AqutterPlatformWebViewCreationParamsProperty.onReceivedIcon,
   );
 
@@ -23,6 +25,8 @@ void onReceivedIcon() {
           onLoadStop: (controller, url) {
             pageLoaded.complete();
           },
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           onReceivedIcon: (controller, icon) {
             if (!onReceivedIconCompleter.isCompleted) {
               onReceivedIconCompleter.complete(icon);

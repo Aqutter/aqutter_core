@@ -307,9 +307,9 @@ class _SupportMatrixScreenState extends State<SupportMatrixScreen>
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: platform.color.withOpacity(0.1),
+                    color: platform.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: platform.color.withOpacity(0.3)),
+                    border: Border.all(color: platform.color.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -343,7 +343,7 @@ class _SupportMatrixScreenState extends State<SupportMatrixScreen>
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),

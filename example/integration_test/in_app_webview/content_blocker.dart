@@ -19,6 +19,8 @@ void contentBlocker() {
             controllerCompleter.complete(controller);
           },
           initialSettings: AqutterWebViewSettings(
+            // Intentionally exercises the deprecated API: this example is an API test bench.
+            // ignore: deprecated_member_use
             clearCache: true,
             contentBlockers: [
               AqutterContentBlocker(

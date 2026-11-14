@@ -22,6 +22,8 @@ void onLoadResource() {
         child: AqutterWebView(
           key: GlobalKey(),
           initialFile: "test_assets/in_app_webview_on_load_resource_test.html",
+          // Intentionally exercises the deprecated API: this example is an API test bench.
+          // ignore: deprecated_member_use
           initialSettings: AqutterWebViewSettings(clearCache: true),
           onLoadStop: (controller, url) {
             pageLoaded.complete();
