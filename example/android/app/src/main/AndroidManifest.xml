@@ -36,7 +36,8 @@
         <!-- Opts release builds of this application into Hybrid Composition++ so the plugin's
              AndroidCompositionMode.HYBRID_COMPOSITION_PLUS_PLUS can take effect. Since Flutter 3.50
              this entry also works for debug runs; alternatively remove it and run
-             `flutter config --enable-hcpp` (an explicit value="false" here overrides that flag). -->
+             the Flutter config flag enable-hcpp (an explicit value="false" here overrides that flag).
+             Do not write double hyphens in this comment: they are not allowed in XML comments. -->
         <meta-data
             android:name="io.flutter.embedding.android.EnableHcpp"
             android:value="true" />
