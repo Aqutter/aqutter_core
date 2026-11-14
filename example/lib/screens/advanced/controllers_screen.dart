@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:aqutter_core/aqutter_core.dart';
 import 'package:aqutter_core_example/widgets/common/app_drawer.dart';
 import 'package:aqutter_core_example/widgets/common/appbar_loading_indicator.dart';
