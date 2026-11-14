@@ -72,12 +72,12 @@ gh repo set-default Aqutter/aqutter_core
 
 ### 平台基準
 
-對齊 **Flutter 3.50.0 / Dart 3.14.0**（2026-11-14 自 3.47.8 / 3.13.7 升級；`flutter analyze` 0 error／0 warning、`flutter test` 125 項通過）。下表是本套件實際設定，尚未逐項對照 3.50 的新範本預設（AGP 9.3.1、KGP 2.4.20）。
+對齊 **Flutter 3.50.0 / Dart 3.14.0**（2026-11-14 自 3.47.8 / 3.13.7 升級；`flutter analyze` 0 error／0 warning、`flutter test` 125 項通過）。AGP 與 Kotlin 已對齊 3.50 的新範本預設。example 仍有第三方 plugin（file_picker、flutter_downloader）套用 KGP，3.50 建置會警告。
 
 | 項目 | 現值 |
 | :--- | :--- |
-| AGP | **9.3.0**；Gradle wrapper 9.5.0 |
-| Kotlin Gradle Plugin | **2.4.0**（Flutter 3.47 的 template 值；3.50 的新範本為 2.4.20，尚未跟進） |
+| AGP | **9.3.1**；Gradle wrapper 9.5.0 |
+| Kotlin Gradle Plugin | **2.4.20**（example 的宣告值；library 用 AGP 內建 Kotlin，example app 已遷移到 Built-in Kotlin） |
 | `compileSdk` / `targetSdk` | 取 `flutter.compileSdkVersion`（跟隨 Flutter SDK，非硬寫）=36 |
 | `minSdkVersion` | **24**（Flutter 支援下限；app 端低於 23 即建置失敗） |
 | iOS 部署目標 | **15.0**（套件 SPM/podspec 與 example 專案一致） |
