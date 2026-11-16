@@ -628,27 +628,20 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   void _reportSurfaceSize() async {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
     if (box != null) {
+      // Read before the await: the context must not be used across an async gap.
+      final scale = widget.scaleFactor ?? View.of(context).devicePixelRatio;
       await _controller.ready;
-      unawaited(
-        _controller._setSize(
-          box.size,
-          widget.scaleFactor ?? window.devicePixelRatio,
-        ),
-      );
+      unawaited(_controller._setSize(box.size, scale));
     }
   }
 
   void _reportWidgetPosition() async {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
     if (box != null) {
+      final scale = widget.scaleFactor ?? View.of(context).devicePixelRatio;
       await _controller.ready;
       final position = box.localToGlobal(Offset.zero);
-      unawaited(
-        _controller._setPosition(
-          position,
-          widget.scaleFactor ?? window.devicePixelRatio,
-        ),
-      );
+      unawaited(_controller._setPosition(position, scale));
     }
   }
 
