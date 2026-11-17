@@ -15,4 +15,4 @@
 - [x] [aqutter_core] widget 測試、`flutter analyze`、`flutter test`；`doc/nativeview.md`
 
 ## Phase 4 — 整合驗證
-- [ ] [aqutter_core] 需等待 [aqutter-js]：元素端完成後，在實機（Android）以兩種模式各跑一次地圖，確認切換與退回
+- [x] [aqutter_core] 需等待 [aqutter-js]：元素端完成後，在實機（Android）以兩種模式各跑一次地圖，確認切換與退回

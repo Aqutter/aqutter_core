@@ -159,6 +159,7 @@
 - **[契約]** rev 1 凍結（核准日 2026-11-17）。
 - **[契約變更]** rev 1 → rev 2（已核准）：child 一律保持掛載，穿透時第一則可見 layout 前以 `Offstage` 隱藏。原因：rev 1 的「不建立 child」與「模式切換期間保持掛載」矛盾（見契約 §6）。
 - **[Android 透明根因]** `AqutterWebView.prepare()` 在 WebView 還沒掛上畫面時呼叫 `setBackgroundColor(TRANSPARENT)`，Chromium 的底色沒有跟著變透明；掛上後再設才生效（執行期 `updateSettings` 走的就是這條）。修法：初始設定後用 `post {}`（掛上後才執行）再套用一次。驗證：殼拿掉兩段式繞過，只靠這個修正，Android 實機（ASUS，API 33）初始設定即生效。對照組是前置實驗中同一支手機「只設初始透明」仍是白的。
+- **[整合驗證]** 與 aqutter-js 的網頁端串起來，在 Android 實機（ASUS，API 33）以未修改的 google-maps plugin 驗證：預設 `auto` 協商成穿透、屬性改 `mirror` 換成鏡像、改回 `passthrough` 換回；canvas 有無與畫面符合預期。iOS 與桌面平台未驗證（`auto` 在這些平台退回鏡像）。
 - **[完成後]** commit + 開 PR（Rule 12 非互動鏈；完成前自動 fetch 後 rebase origin/main 並 push --force-with-lease --force-if-includes）。
 - **[實作]** 型別與決策在 `native_mode.dart`；穿透時 child 用 `KeyedSubtree`＋`GlobalKey` 在鏡像與穿透之間換父層不重建；`passthroughAvailable` 只影響之後的協商。
 - **[執行模式]** 序列（依據：環境只有單一 agent，沒有獨立子 agent）；順序 aqutter_core → aqutter-js → aqutter → aqutter-plugins。
