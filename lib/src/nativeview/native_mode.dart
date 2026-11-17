@@ -31,7 +31,7 @@ enum AqutterNativeMode {
 
 /// 請求穿透卻退回鏡像的原因（線上格式為 [wire]）。
 enum AqutterNativeModeReason {
-  /// 平台沒有穿透實作（目前只有 Android；iOS 驗證前視為不支援）。
+  /// 平台沒有穿透實作（目前支援 Android 與 iOS；macOS、Windows、Linux、Web 沒有）。
   unsupportedPlatform('unsupported-platform'),
 
   /// [AqutterNative.mode] 為 [AqutterNativeMode.mirror]。
@@ -82,13 +82,16 @@ class AqutterNativeModeDecision {
 
 /// 這個平台有沒有穿透模式的實作。
 ///
-/// 目前只有 Android（實機驗證過）；iOS 沒有設備驗證，先視為不支援，`auto` 一律鏡像；
+/// Android（實機驗證過）與 iOS（模擬器驗證過，實機待驗）；
 /// macOS、Windows、Linux 與 Web 沒有實作。傳入 [platform] 方便測試。
 bool aqutterNativePassthroughSupported([TargetPlatform? platform]) {
   if (kIsWeb) {
     return false;
   }
-  return (platform ?? defaultTargetPlatform) == TargetPlatform.android;
+  return switch (platform ?? defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    _ => false,
+  };
 }
 
 /// 模式決策：生效模式 = 請求 ∩ widget 允許 ∩ 平台支援 ∩（`auto` 時）頁面可穿透。

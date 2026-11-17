@@ -44,7 +44,7 @@ assets/packages/aqutter_core/assets/web/web_support.js
 
 ## Native view：鏡像與穿透
 
-把 Flutter 內容（Widget 或 PlatformView，如地圖）顯示到網頁，並接收網頁手勢回控，讓網頁能在原生內容之上疊 HTML。兩種模式共用同一個標籤、手勢與事件：**鏡像**即時擷取畫面、傳到網頁的 canvas；**穿透**讓原生內容直接畫在透明的 WebView 下面（目前 Android）。Dart 端 `AqutterNative`（`mode` 預設 `auto`），網頁端是 `@aqutter/aqutter` 的 `<aqutter-native>`（`mode` 屬性）；協定與限制見 [doc/nativeview.md](doc/nativeview.md)。
+把 Flutter 內容（Widget 或 PlatformView，如地圖）顯示到網頁，並接收網頁手勢回控，讓網頁能在原生內容之上疊 HTML。兩種模式共用同一個標籤、手勢與事件：**鏡像**即時擷取畫面、傳到網頁的 canvas；**穿透**讓原生內容直接畫在透明的 WebView 下面（Android、iOS）。Dart 端 `AqutterNative`（`mode` 預設 `auto`），網頁端是 `@aqutter/aqutter` 的 `<aqutter-native>`（`mode` 屬性）；協定與限制見 [doc/nativeview.md](doc/nativeview.md)。
 
 ## 目錄結構
 
