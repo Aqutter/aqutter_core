@@ -1,0 +1,68 @@
+<!-- REMINDER: Relative Paths Only! No file:///c:/... -->
+# Plan: 2611172358 - ios-passthrough-drag-jitter
+- Created: 2026-11-17
+- Branch: feature/2611172358-ios-passthrough-drag-jitter
+- Issue: Aqutter/aqutter_core#35
+- Milestone: N/A（未指定）
+- Base Branch: main
+- Status: In Progress
+- Completed: [Wait for Finish]
+
+## Goals
+iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模擬器與 iPad 實機都會）。目標：拖曳時地圖跟著手指平順移動。
+
+已知（上一輪量測，見 `.kn-project/archive/2611172115-ios-passthrough-verify.md` 的後續討論）：網頁每 16ms 送一個 `pan`、Dart 每 16ms 呼叫一次 `moveCamera`（每次 0–5ms）、主執行緒閒置，但螢幕上的地圖是停約 265ms 再一次跳 40–64 像素；用網頁合成事件驅動則是即時更新。**根因未確定。**
+
+## Architecture
+目前穿透的手勢路徑：手指 → 上層透明 WebView → 網頁手勢辨識（`gestures.ts`）→ `pan` 訊息經 WebSocket → Dart（`AqutterNative.onMessage`）→ plugin 的 `moveCamera(scrollBy)` → 原生 `GMSMapView`。
+候選修法（Phase 1 實驗後才決定）：穿透時讓觸控直接交給原生地圖，WebView 在地圖區域不攔截觸控（網頁回報要攔截的區域），繞過上述轉送。
+- 實作遵守 `kn-project-code-style`。
+
+## Cross-Repo Scope
+- **本計畫所屬 repo**: `aqutter_core`
+- **共用計畫 ID**: `2611172358-ios-passthrough-drag-jitter`　**共用分支名**: `feature/2611172358-ios-passthrough-drag-jitter`
+- **參與 repo 與職責**:
+  - `aqutter_core` — Phase 1 實驗；若採「原生直接接觸控」，iOS 的 WebView 觸控穿透　issue: `Aqutter/aqutter_core#35`
+  - `aqutter-js`、`aqutter-plugins` — **目前不改**。Phase 1 實驗若證實方向，需要它們配合（回報攔截區域、打開地圖原生手勢）時，回到本計畫補 `## Cross-Repo Scope`、契約與各 repo 的 issue，並**重新核准**（Rule 2／19／28），不會直接動手。
+- **執行順序相依**: 無（Phase 1 只在 `aqutter_core` 本機實驗，不改任何 repo 的程式碼）。
+- **跨 repo 檔案指涉**: 實驗要讀的他 repo 檔案：`aqutter-plugins` 的 `packages/google-maps/lib/src/google_maps_plugin.dart:187-199`（`AqutterNative` 建立）、`:235-262`（`_onMessage`／`_applyPending`）；`aqutter-js` 的 `src/nativeview/element.ts:283-330`（指標事件）、`src/nativeview/gestures.ts:195-203`（`pan`）。
+- **合併後的連動**: 視最終改動而定。
+
+## Contract / 介面契約
+無（Phase 1 不改任何跨端協定）。Phase 1 後若需要新增訊息（例如「攔截區域」），會在重新核准時補上完整契約。
+
+## Impact Files
+- `ios/aqutter_core/Sources/aqutter_core/AqutterWebView/AqutterWebView.swift:12` (`AqutterWebView`) — 條件式：若採「WebView 在地圖區域不攔截觸控」，需覆寫 hit test；Phase 1 結果出來前不動，屆時回計畫補列並重新核准。
+- `lib/src/nativeview/native_session.dart:55`（`passthrough`）、`lib/src/nativeview/native_host_io.dart:433`（協商）— 條件式：若需要把攔截區域或手勢模式傳到原生端。
+- `.kn-project/archive/2611172358-ios-passthrough-drag-jitter.md` (new) — Phase 5 歸檔。
+- Phase 1 的實驗只用暫時改動（驗證用環境，結束後還原，不進 commit）。
+
+## App-Flow Screens
+（本 repo 無 `.kn-project/app-flow.json`，不適用。）
+
+## Open Questions / 待確認事項
+### Q1. Phase 1 實驗證實「原生直接接觸控」平順後，是否在本計畫內繼續實作？ — 影響範圍：aqutter-js、aqutter-plugins、aqutter_core
+- [ ] 選項 A：回到本計畫補跨 repo 範圍與契約，重新核准後實作　(建議，理由：它會改三個 repo 的協定)
+- [ ] 選項 B：本計畫到實驗結果為止，實作另開計畫
+- **決議**：_(待使用者勾選)_　狀態：⏳ 待確認
+
+## Manual Follow-ups / 人工收尾事項
+- **[合併後]** 實機驗證 — 在 iPad 實機確認拖曳不再抖 — agent 無法觀察實機畫面，需要你回報
+
+## Key Decisions
+- **[Phase 0]** 目標 repo：`aqutter_core`（依據：穿透時手勢路徑與 iOS WebView 都在此；`aqutter-js`、`aqutter-plugins` 只讀）。
+- **[Milestone]** 不指定，base `main`；整合主幹只有 `main`。
+- **[方向]** 使用者選擇「直接開計畫修抖動」（不先單獨做實驗），所以實驗納入本計畫第一階段；實驗結果可能改變範圍，需重新核准。
+- **[Q1 暫定]** Q1 的答案取決於 Phase 1 結果，使用者核准時未另行勾選；Phase 1 結束時再請示，Phase 2 之前必須已確認。
+- **[完成後]** commit + 開 PR（使用者核准）。
+- **[程式碼風格]** 遵守 `kn-project-code-style`。
+
+## Git Completion Policy
+- PR 一律以 `--base main` 顯式指定 base (Rule 23)。
+- Issue 綁定時，每個 commit 訊息與 PR body 都含 `Closes #${N}`。歸檔完成後於該 issue 張貼結案留言。
+- Issue 的關閉發生在合併後清理，不在歸檔當下。
+- commit 一律自動；完成時依核准閘的「完成後」選項處理 rebase／push。
+
+## References
+- `.kn-project/archive/2611172115-ios-passthrough-verify.md` — iOS 穿透驗證與開啟
+- 上一輪量測：模擬器逐幀錄影、`sample` 主執行緒、`moveCamera` 計時（只在對話中，未入檔）
