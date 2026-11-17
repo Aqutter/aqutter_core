@@ -361,8 +361,18 @@ class AqutterWebView : InputAwareWebView, AqutterWebViewInterface {
 
     setKeyboardAvoidanceEnabled(customSettings.keyboardAvoidance)
 
-    if (customSettings.transparentBackground)
+    if (customSettings.transparentBackground) {
       setBackgroundColor(Color.TRANSPARENT)
+      // Setting it here, before the view is attached to a window, does not reliably reach Chromium's base
+      // background: the page then keeps painting white. Setting it again after attach does (it is what
+      // updateSettings does at runtime), so repeat it once the view is attached. View.post queues the runnable
+      // until then. Needed for content placed under the WebView (AqutterNative passthrough).
+      post {
+        if (customSettings.transparentBackground) {
+          setBackgroundColor(Color.TRANSPARENT)
+        }
+      }
+    }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && customSettings.mixedContentMode != null)
       settings.setMixedContentMode(customSettings.mixedContentMode!!)

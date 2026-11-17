@@ -4,6 +4,7 @@ library;
 
 export 'native_channel.dart' show AqutterChannelConnection, AqutterChannelHandler, aqutterChannelNamePattern;
 export 'native_frame.dart' show AqutterNativeFormat, AqutterNativeFrame, AqutterNativeMessage, AqutterNativeViewport, aqutterNativeHeaderLength, encodeAqutterNativeFrameHeader;
+export 'native_mode.dart' show AqutterNativeLayout, AqutterNativeMode, AqutterNativeModeDecision, AqutterNativeModeReason, aqutterNativePassthroughSupported, decideAqutterNativeMode;
 export 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart' show AqutterNativeEndpoint, AqutterNativeHost, aqutterNativeMaxInFlight;
 export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessageHandler, AqutterNativeSession;
 export 'native_widget.dart' show AqutterNative;

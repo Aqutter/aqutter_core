@@ -25,6 +25,12 @@ class AqutterNativeHost {
   /// Web 平台沒有伺服器，值恆為 `null`（與原生版介面一致）。
   final ValueListenable<AqutterNativeEndpoint?> endpoint = ValueNotifier<AqutterNativeEndpoint?>(null);
 
+  /// Web 平台沒有伺服器，恆為 0（與原生版介面一致）。
+  final ValueListenable<int> passthroughSessions = ValueNotifier<int>(0);
+
+  /// Web 平台沒有穿透模式；僅為與原生版介面一致。
+  bool passthroughAvailable = true;
+
   Future<AqutterNativeEndpoint> ensureStarted() => throw UnsupportedError('Native host is not available on web');
 
   void register(AqutterNativeSession session) => throw UnsupportedError('Native host is not available on web');

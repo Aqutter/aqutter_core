@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import 'native_frame.dart';
+import 'native_mode.dart';
 import 'native_stats.dart';
 
 /// 閒置時的低頻輪詢間隔（也是補定格幀等計時事件的最長延遲）。
@@ -29,6 +30,7 @@ class AqutterNativeSession {
     this.onMessage,
     this.maxFps,
     this.eventDriven = false,
+    this.mode = AqutterNativeMode.auto,
   }) : assert(maxFps == null || maxFps > 0, 'maxFps must be positive');
 
   /// 與網頁端 `<aqutter-native session="…">` 一致的識別字。
@@ -45,6 +47,18 @@ class AqutterNativeSession {
   /// true：擷取由事件觸發，閒置時不輪詢（只留低頻逾時），事件一到立刻擷取；
   /// false（預設）：以固定間隔（16 ms，若設了 [maxFps] 則取較短的）輪詢，適用沒有變動通知的來源（自訂擷取、iOS 的 PlatformView）。
   final bool eventDriven;
+
+  /// 這個工作階段允許的模式（見 [AqutterNativeMode]）；模式協商時與網頁的請求一起決定生效的模式。
+  final AqutterNativeMode mode;
+
+  /// 目前是否為穿透模式（由 host 在模式協商後設定）。穿透時不擷取、不送幀。
+  bool get passthrough => passthroughListenable.value;
+
+  /// [passthrough] 的變動通知（供 widget 切換排版）。
+  final ValueNotifier<bool> passthroughListenable = ValueNotifier<bool>(false);
+
+  /// 穿透模式下網頁最近回報的元素矩形；尚未回報、或不是穿透模式時為 `null`。
+  final ValueNotifier<AqutterNativeLayout?> layoutListenable = ValueNotifier<AqutterNativeLayout?>(null);
 
   /// 送出一個二進位幀給所有連線；由 host 掛上。
   void Function(Uint8List header, Uint8List payload)? _send;
@@ -125,6 +139,28 @@ class AqutterNativeSession {
     markDirty();
   }
 
+  /// 模式協商的結果（host 呼叫）。切成穿透時停掉擷取迴圈；切回鏡像時清掉矩形並立刻擷取一幀。
+  void setPassthrough(bool value) {
+    if (passthroughListenable.value == value) {
+      return;
+    }
+    passthroughListenable.value = value;
+    if (value) {
+      return;
+    }
+    layoutListenable.value = null;
+    markDirty();
+    _syncTimer();
+  }
+
+  /// 穿透模式下網頁回報元素矩形（host 呼叫）。與上一次相同的內容忽略。
+  void updateLayout(AqutterNativeLayout next) {
+    if (!passthrough || layoutListenable.value == next) {
+      return;
+    }
+    layoutListenable.value = next;
+  }
+
   /// 網頁連線數改變。新連線預設為「看得到」，直到它回報 `visibility`。
   void clientCountChanged(int count, {int? visible}) {
     if (count > _clients) {
@@ -150,7 +186,7 @@ class AqutterNativeSession {
 
   /// 有看得到的連線才跑擷取迴圈：沒人看到的畫面不該耗 CPU。
   void _syncTimer() {
-    if (_visibleClients > 0 && !_loopRunning && !_disposed) {
+    if (_visibleClients > 0 && !_loopRunning && !_disposed && !passthrough) {
       _loopRunning = true;
       unawaited(_run());
     }
@@ -169,7 +205,7 @@ class AqutterNativeSession {
     final poll = Duration(microseconds: cap == null ? _pollMicros : math.min(_pollMicros, 1000000 ~/ (cap * 2)));
     final clock = Stopwatch()..start();
     var deadline = Duration.zero;
-    while (_visibleClients > 0 && !_disposed) {
+    while (_visibleClients > 0 && !_disposed && !passthrough) {
       await _tick();
       if (eventDriven) {
         final gate = minGapMicros - (_clock.elapsedMicroseconds - _lastFrameStartMicros);
@@ -223,6 +259,7 @@ class AqutterNativeSession {
         'capturing': _capturing,
         'canSend': _canSend?.call(),
         'seq': _seq,
+        'passthrough': passthrough,
         'dirty': _dirty,
         ...debug,
       };
@@ -237,7 +274,7 @@ class AqutterNativeSession {
     // 沒人看、或所有連線都來不及處理（未確認的幀太多）時不擷取：多送只會在對方堆積
     final pressure = !(_canSend?.call() ?? true);
     stats.tick(busy: _capturing, pressure: pressure);
-    if (_capturing || _clients == 0 || pressure) {
+    if (_capturing || _clients == 0 || pressure || passthrough) {
       return;
     }
     _capturing = true;
@@ -273,6 +310,8 @@ class AqutterNativeSession {
   void dispose() {
     _disposed = true;
     viewportListenable.dispose();
+    passthroughListenable.dispose();
+    layoutListenable.dispose();
     _send = null;
     _canSend = null;
   }
