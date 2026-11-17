@@ -146,7 +146,7 @@ class AqutterNative extends StatefulWidget {
   ///
   /// - [AqutterNativeMode.mirror]：絕不穿透，一律擷取並鏡像到網頁（現有行為）。
   /// - [AqutterNativeMode.passthrough]、[AqutterNativeMode.auto]：允許穿透。實際是否穿透由模式協商決定：
-  ///   網頁的 `mode` 請求、平台支援（目前只有 Android）、殼能否使 WebView 透明、以及 `auto` 時網頁回報的頁面條件。
+  ///   網頁的 `mode` 請求、平台支援（目前為 Android 與 iOS）、殼能否使 WebView 透明、以及 `auto` 時網頁回報的頁面條件。
   ///
   /// 穿透時本 widget 不擷取、不送幀：[child] 不再被包在擷取用的邊界裡，而是依網頁回報的元素矩形放在對應位置、
   /// 與元素同大。為此 **本 widget 的盒子原點必須等於 WebView 視窗的原點**（例如殼底層 `Stack` 中的 `Positioned.fill`）；

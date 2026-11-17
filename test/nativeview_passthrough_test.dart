@@ -142,9 +142,11 @@ void main() {
   });
 
   group('platform support', () {
-    test('only Android is supported for now', () {
-      expect(aqutterNativePassthroughSupported(TargetPlatform.android), isTrue);
-      for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS, TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.fuchsia]) {
+    test('only Android and iOS are supported for now', () {
+      for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+        expect(aqutterNativePassthroughSupported(platform), isTrue, reason: '$platform');
+      }
+      for (final platform in [TargetPlatform.macOS, TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.fuchsia]) {
         expect(aqutterNativePassthroughSupported(platform), isFalse, reason: '$platform');
       }
     });
@@ -209,6 +211,18 @@ void main() {
       expect(session.layoutListenable.value?.left, 5, reason: 'an invalid layout is ignored');
     });
 
+    test('iOS negotiates passthrough like Android', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final session = _session('map');
+      host.register(session);
+      final client = await _Client.connect(await host.ensureStarted(), 'map');
+      addTearDown(client.close);
+
+      expect(await client.negotiate('auto'), {'type': 'mode', 'mode': 'passthrough'});
+      expect(session.passthrough, isTrue);
+      expect(host.passthroughSessions.value, 1);
+    });
+
     test('passthrough stops capturing and sending frames', () async {
       var captures = 0;
       final session = _session('map', onCapture: () => captures += 1);
@@ -247,12 +261,12 @@ void main() {
       addTearDown(client.close);
       expect(await client.negotiate('passthrough'), {'type': 'mode', 'mode': 'mirror', 'reason': 'unsupported-widget'});
 
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      final ios = _session('ios');
-      host.register(ios);
-      final iosClient = await _Client.connect(endpoint, 'ios');
-      addTearDown(iosClient.close);
-      expect(await iosClient.negotiate('auto'), {'type': 'mode', 'mode': 'mirror', 'reason': 'unsupported-platform'});
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final desktop = _session('desktop');
+      host.register(desktop);
+      final desktopClient = await _Client.connect(endpoint, 'desktop');
+      addTearDown(desktopClient.close);
+      expect(await desktopClient.negotiate('auto'), {'type': 'mode', 'mode': 'mirror', 'reason': 'unsupported-platform'});
       expect(host.passthroughSessions.value, 0);
     });
 
@@ -358,7 +372,8 @@ void main() {
       expect(find.byType(_Probe), findsOneWidget);
       expect(_Probe.initCount, 1, reason: 'the child state survives switching between passthrough and mirror');
       await tester.runAsync(client.close);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+      await _unmount(tester);
+    }, variant: _supportedPlatforms);
 
     testWidgets('a mirror-only widget never goes passthrough', (tester) async {
       await tester.pumpWidget(app(const _Probe(), mode: AqutterNativeMode.mirror));
@@ -371,7 +386,18 @@ void main() {
       });
       expect(reply['mode'], 'mirror');
       expect(reply['reason'], 'unsupported-widget');
-    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+      await _unmount(tester);
+    }, variant: _supportedPlatforms);
+  });
+}
+
+final _supportedPlatforms = TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS});
+
+/// 在真實的非同步區域卸載 widget：dispose 時關閉 WebSocket 會建立 5 秒的計時器，
+/// 留在 FakeAsync 裡會被測試結尾的「沒有待處理計時器」檢查擋下。
+Future<void> _unmount(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
 
