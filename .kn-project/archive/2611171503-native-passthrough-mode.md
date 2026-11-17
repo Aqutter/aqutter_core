@@ -51,7 +51,7 @@ core 負責契約正本與原生端：每次連線的模式協商（決策只在
 - `lib/src/nativeview/native_widget.dart:25` (`AqutterNative` 建構子)、`:147` (`_AqutterNativeState`)、`:204` (`initState`) — 新增 `mode` 參數；穿透時不擷取、依 `layout` 定位 child、`visible: false` 時 `Offstage`。
 - `lib/src/nativeview/native_host_io.dart:340-381` (`_onData`) — 處理 `mode`（協商與回覆）、`layout`；維護 `passthroughSessions`；沒有 `mode` 訊息的連線視為鏡像。
 - `lib/src/nativeview/native_session.dart:66-124` (`viewport`、`viewportListenable`) — 加入穿透狀態與 `layout` 的 `ValueListenable`。
-- `lib/src/nativeview/native_frame.dart:73-89` (`AqutterNativeMessage` 文件) — 補文件；新增 `AqutterNativeLayout`、`AqutterNativeMode`（同檔或新檔，實作時定）。
+- `lib/src/nativeview/native_mode.dart` (new) — `AqutterNativeMode`、`AqutterNativeModeReason`、`AqutterNativeModeDecision`、`decideAqutterNativeMode`（純函式決策）、`aqutterNativePassthroughSupported`、`AqutterNativeLayout`（計畫原寫「同檔或新檔」，實作選新檔）。
 - `lib/src/nativeview/native_host_stub.dart` — Web 端 stub 對 `passthroughSessions` 與 `mode` 的對應（一律鏡像／不支援）。
 - `lib/src/nativeview/nativeview.dart` — 匯出新型別。
 - `android/src/main/kotlin/com/github/aqutter/core/webview/webview/AqutterWebView.kt:364`、`:940` — 讓初始與執行期的透明設定等效；根因於實作時查明，記入 `## Key Decisions`。
