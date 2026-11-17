@@ -56,7 +56,12 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[Q1 暫定]** Q1 的答案取決於 Phase 1 結果，使用者核准時未另行勾選；Phase 1 結束時再請示，Phase 2 之前必須已確認。
 - **[完成後]** commit + 開 PR（使用者核准）。
 - **[Phase 1 結果：沒有證實也沒有推翻]** 模擬器上，把觸控交給原生地圖的實驗**沒能讓原生地圖收到拖曳**：依序做了 (1) 隱藏原生 WebView＋打開 `GMSMapView` 的 scroll／zoom 手勢；(2) 再讓 plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`；(3) 再讓殼把 WebView 包進 `IgnorePointer`。每一步都用 `swipe` 拖曳後截圖比對，地圖都沒有移動。原因未確定，推測是 Flutter 端的 platform view 觸控仲裁（`FlutterTouchInterceptingView` 在 Flutter 手勢競技場決定前不放行）還有其他攔截者。因此「原生直接接觸控是否平順」**沒有驗證到**。
-- **[Phase 1 續：觸控查到哪一層]** 未改任何檔案，以 `lldb` 在執行中的模擬器 app 查（WebView 原生層隱藏）：UIKit hit test 在地圖點 (200,500) 落在 `GMSVectorMapView`（地圖的 view 階層）；觸控事件有到 `ForwardingGestureRecognizer`、`GMSBlockingGestureRecognizer`；Flutter 端同一次觸控先後呼叫了 `blockGesture` 與 `releaseGesture`（Flutter 手勢競技場的輸贏回報）；`GMSMapView.settings` 的 `scrollGestures`／`zoomGestures` 與 `userInteractionEnabled` 都是開的，但拖曳後相機位置沒變（25.033, 121.565 z12 不變）。**推論（未證實）**：殼底層 Stack 裡同時有地圖與 WebView 兩個 platform view，Flutter 的手勢競技場把觸控判給最上層的 WebView 的 platform view、封鎖地圖那個，所以地圖永遠收不到拖曳；與前一輪「IgnorePointer 包 WebView 也沒用」的結果不矛盾（該實驗是否真的讓 WebView 退出競技場沒有驗證）。
+- **[Phase 1 續：觸控查到哪一層]** 未改任何檔案，以 `lldb` 在執行中的模擬器 app 查（WebView 原生層隱藏）：UIKit hit test 在地圖點 (200,500) 落在 `GMSVectorMapView`（地圖的 view 階層）；觸控事件有到 `ForwardingGestureRecognizer`、`GMSBlockingGestureRecognizer`；Flutter 端同一次觸控先後呼叫了 `blockGesture` 與 `releaseGesture`（Flutter 手勢競技場的輸贏回報）；`GMSMapView.settings` 的 `scrollGestures`／`zoomGestures` 與 `userInteractionEnabled` 都是開的，但拖曳後相機位置沒變（25.033, 121.565 z12 不變）。**推論（已於下一條確認）**：殼底層 Stack 裡同時有地圖與 WebView 兩個 platform view，Flutter 的手勢競技場把觸控判給最上層的 WebView 的 platform view、封鎖地圖那個，所以地圖永遠收不到拖曳；與前一輪「IgnorePointer 包 WebView 也沒用」的結果不矛盾（該實驗是否真的讓 WebView 退出競技場沒有驗證）。
+- **[Phase 1 更正與確認：競技場推論成立]** 先更正：前面「三種暫時改法地圖都不動」的實驗，其中殼的 `IgnorePointer` 與 core 的覆寫**根本沒有被編進 app**（`pubspec_overrides.yaml` 寫了但沒重跑 `flutter pub get`，`package_config.json` 仍指向 pub cache），所以那次的負面結果不成立。重做並確認覆寫生效（`flutter pub get` 後 `package_config` 指向本機殼與 core）：
+  - 不改（WebView 在競技場）：同一次拖曳，`blockGesture` 打在**地圖**的 `FlutterTouchInterceptingView`、`releaseGesture` 打在 **WebView** 的 → 競技場判給 WebView，封鎖地圖。
+  - 殼把 WebView 包進 `IgnorePointer`、plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`、並隱藏原生 WebView：`blockGesture` 變成打在 **WebView**、`releaseGesture` 打在**地圖**；相機經度 121.565 → 121.665，**原生地圖被拖動**。
+  - 平順度（模擬器錄影逐幀）：原生直接接觸控時，地圖在整段拖曳期間持續更新（約 0.6 秒內數十次、間隔 3–60ms），沒有先前「停約 265ms 再一次跳 40–64 像素」的現象。
+  - 結論：**抖動來自現行路徑（網頁轉送 `pan` → Dart → `moveCamera`），原生直接接觸控是平順的**。實機（iPad）未驗證。
 - **[Phase 1 其他量測]** 以 `sample` 抓拖曳期間主執行緒：幾乎閒置；以 `lldb` 確認 `GMSMapView.preferredFrameRate` 已是最大值。
 - **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
