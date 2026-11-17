@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'native_adaptive.dart';
 import 'native_frame.dart';
 import 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart';
+import 'native_mode.dart';
 import 'native_pointer.dart';
 import 'native_session.dart';
 import 'native_capture.dart';
@@ -45,6 +46,7 @@ class AqutterNative extends StatefulWidget {
     this.matchViewportAspect = false,
     this.injectPointers = false,
     this.captureOverride,
+    this.mode = AqutterNativeMode.auto,
   });
 
   /// 與網頁端 `session` 屬性一致；同時掛了兩個相同 id 時，後掛上的取代先掛上的。
@@ -140,12 +142,27 @@ class AqutterNative extends StatefulWidget {
   /// 擷取迴圈改成固定間隔輪詢；回傳 null 代表這一輪沒有新畫面。
   final AqutterNativeFrameCapture? captureOverride;
 
+  /// 這個 widget 允許的顯示模式（見 [AqutterNativeMode]）；預設 [AqutterNativeMode.auto]。
+  ///
+  /// - [AqutterNativeMode.mirror]：絕不穿透，一律擷取並鏡像到網頁（現有行為）。
+  /// - [AqutterNativeMode.passthrough]、[AqutterNativeMode.auto]：允許穿透。實際是否穿透由模式協商決定：
+  ///   網頁的 `mode` 請求、平台支援（目前只有 Android）、殼能否使 WebView 透明、以及 `auto` 時網頁回報的頁面條件。
+  ///
+  /// 穿透時本 widget 不擷取、不送幀：[child] 不再被包在擷取用的邊界裡，而是依網頁回報的元素矩形放在對應位置、
+  /// 與元素同大。為此 **本 widget 的盒子原點必須等於 WebView 視窗的原點**（例如殼底層 `Stack` 中的 `Positioned.fill`）；
+  /// [child] 一直保持掛載（協商前先當鏡像）；第一則 `visible` 的矩形到達前、以及元素不可見時用 [Offstage] 隱藏，不重建。
+  /// 手勢座標與鏡像相同（相對元素的 0..1），所以 [onMessage] 的處理不需要因模式而改。
+  final AqutterNativeMode mode;
+
   @override
   State<AqutterNative> createState() => _AqutterNativeState();
 }
 
 class _AqutterNativeState extends State<AqutterNative> {
   final GlobalKey _boundaryKey = GlobalKey();
+
+  /// 讓 child 在鏡像與穿透之間切換排版時保持掛載（GlobalKey 換父層不重建狀態，例如 PlatformView）。
+  final GlobalKey _childKey = GlobalKey();
   AqutterNativeSession? _session;
   final AqutterNativePointerInjector _pointers = AqutterNativePointerInjector();
 
@@ -217,7 +234,8 @@ class _AqutterNativeState extends State<AqutterNative> {
         || oldWidget.quality != widget.quality
         || oldWidget.minScale != widget.minScale
         || oldWidget.matchViewportAspect != widget.matchViewportAspect
-        || oldWidget.captureOverride != widget.captureOverride;
+        || oldWidget.captureOverride != widget.captureOverride
+        || oldWidget.mode != widget.mode;
     if (changed) {
       _unregister();
       _register();
@@ -233,6 +251,7 @@ class _AqutterNativeState extends State<AqutterNative> {
     _scaler = AqutterNativeScaler(minScale: _minScale);
     final session = AqutterNativeSession(
       id: widget.sessionId,
+      mode: widget.mode,
       maxFps: widget.maxFps,
       // 以 RepaintBoundary 擷取時，內容重繪會喚醒擷取迴圈；PlatformView 的原生擷取沒有變動通知，需要輪詢
       eventDriven: widget.captureOverride == null && !(widget.nativeCapture && AqutterNativeCapture.isSupported),
@@ -493,13 +512,33 @@ class _AqutterNativeState extends State<AqutterNative> {
 
   @override
   Widget build(BuildContext context) {
-    final boundary = _CountingRepaintBoundary(
-      key: _boundaryKey,
-      onPaint: () => _session?.wake(), // 重繪時喚醒閒置中的擷取迴圈
-      child: widget.child,
+    final boundary = KeyedSubtree(
+      key: _childKey,
+      child: _CountingRepaintBoundary(
+        key: _boundaryKey,
+        onPaint: () => _session?.wake(), // 重繪時喚醒閒置中的擷取迴圈
+        child: widget.child,
+      ),
     );
     final session = _session;
-    if (!widget.matchViewportAspect || session == null) {
+    if (session == null) {
+      return boundary;
+    }
+    return ListenableBuilder(
+      listenable: Listenable.merge([session.passthroughListenable, session.layoutListenable]),
+      child: boundary,
+      builder: (context, child) {
+        if (session.passthrough) {
+          return _buildPassthrough(session.layoutListenable.value, child!);
+        }
+        return _buildMirror(session, child!);
+      },
+    );
+  }
+
+  /// 鏡像：與改版前相同的排版。
+  Widget _buildMirror(AqutterNativeSession session, Widget boundary) {
+    if (!widget.matchViewportAspect) {
       return boundary;
     }
     return ValueListenableBuilder<AqutterNativeViewport?>(
@@ -513,6 +552,28 @@ class _AqutterNativeState extends State<AqutterNative> {
           child: AspectRatio(aspectRatio: viewport.width / viewport.height, child: child),
         );
       },
+    );
+  }
+
+  /// 穿透：child 與網頁元素同大、放在網頁回報的位置。
+  ///
+  /// child 一直保持掛載（widget 第一次建立時還沒協商出模式、先當鏡像，child 已經建好；換成穿透時不能拆掉重建，
+  /// PlatformView 的狀態會遺失）。第一則矩形到達前、以及元素不可見時用 [Offstage] 隱藏：照樣排版、不繪製。
+  Widget _buildPassthrough(AqutterNativeLayout? layout, Widget boundary) {
+    if (layout == null) {
+      return Offstage(child: boundary);
+    }
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          left: layout.left,
+          top: layout.top,
+          width: layout.width,
+          height: layout.height,
+          child: Offstage(offstage: !layout.visible, child: boundary),
+        ),
+      ],
     );
   }
 }

@@ -95,6 +95,78 @@ AqutterNativeHost.instance.registerChannel('bench.echo', (connection) {
 | `resize` | `width`、`height`（CSS 像素）、`dpr` | 網頁回報顯示尺寸；連線時與尺寸改變時送 |
 | `visibility` | `visible`（bool） | 網頁回報元素是否看得到；連線時與改變時送 |
 
+## 穿透模式（passthrough）
+
+鏡像要擷取、傳輸、解碼，每一幀都有成本。穿透模式讓原生內容**直接畫在 WebView 下面**，網頁的 `<aqutter-native>` 只佔版面：WebView 設成透明，原生內容從透明處透出來，網頁的 HTML 照樣疊在上面。同一個標籤、同一組手勢與事件，用 `mode` 屬性在兩種模式之間切換。
+
+| 項目 | 鏡像（`mirror`） | 穿透（`passthrough`） |
+|---|---|---|
+| 原生內容 | 擷取後送給網頁畫進 canvas | 直接畫在 WebView 下面，不擷取、不送幀 |
+| 標籤 | 顯示 canvas | 透明，只佔版面（shadow DOM 不建立 canvas） |
+| 手勢、指令、`pointer` | 相對元素 0..1 的訊息 | **相同** |
+| 頁面條件 | 無 | 元素後方的祖先不可有不透明背景 |
+| 平台 | 全部 | 目前只有 Android（iOS 驗證前視為不支援） |
+
+### Dart 端
+
+```dart
+AqutterNative(
+  sessionId: 'map',
+  mode: AqutterNativeMode.auto, // 預設；mirror＝絕不穿透
+  child: GoogleMap(...),
+)
+```
+
+`mode` 是這個 widget 允許的範圍（`mirror`＝絕不穿透；`auto`、`passthrough`＝允許）。實際生效的模式在每次連線時協商，決策只在原生端（`decideAqutterNativeMode`）：
+
+> 生效模式 ＝ 網頁的請求 ∩ widget 允許 ∩ 平台支援 ∩ 殼能使 WebView 透明 ∩（請求為 `auto` 時）頁面可穿透
+
+退回鏡像時回覆帶原因：`unsupported-widget`、`unsupported-platform`、`transparent-failed`、`page-not-ready`（請求本來就是 `mirror` 時沒有原因）。
+
+穿透時 `AqutterNative` 不擷取，改依網頁回報的元素矩形，把 `child` 以緊約束（與元素同大）放在對應位置，所以 **widget 的盒子原點必須等於 WebView 視窗的原點**（例如殼底層 `Stack` 中的 `Positioned.fill`）。`child` 從一開始就保持掛載（協商前先當鏡像），穿透時在第一則可見的矩形到達前、以及元素不可見時用 `Offstage` 隱藏，模式切換不會重建 `child`，所以 PlatformView 的狀態（地圖的相機等）不會遺失。
+
+殼要做兩件事：
+
+- 監聽 `AqutterNativeHost.instance.passthroughSessions`（目前生效為穿透的工作階段數）：大於 0 時把 WebView 設為透明，回到 0 時還原。穿透的原生內容在 WebView 下面，WebView 不透明就看不到。
+- 確定無法使 WebView 透明時，設 `AqutterNativeHost.instance.passthroughAvailable = false`：之後的協商一律退回鏡像（`transparent-failed`）。只影響之後的協商。
+
+### 訊息（WebSocket 文字，與既有的 `ack`／`resize` 同一條連線）
+
+網頁 → 原生，連線後的**第一則**：
+
+```json
+{"type":"mode","request":"auto","pageReady":true}
+```
+
+`request` 是元素的 `mode` 屬性（`auto`／`mirror`／`passthrough`），`pageReady` 是網頁偵測的「頁面可穿透」。沒有送這則訊息的連線（舊版網頁）一律視為鏡像。
+
+原生 → 網頁，回覆：
+
+```json
+{"type":"mode","mode":"passthrough"}
+{"type":"mode","mode":"mirror","reason":"page-not-ready"}
+```
+
+穿透時，網頁 → 原生，回報元素矩形（CSS 像素＝Flutter 邏輯像素，原點是 WebView 視窗左上角，即 `getBoundingClientRect()`）：
+
+```json
+{"type":"layout","left":20,"top":30,"width":200,"height":100,"visible":true,"sentAt":1700000000000}
+```
+
+元素大小或位置改變時送（任何祖先捲動、視窗大小改變都算），每個動畫畫面最多一則；`visible` 為 `false` 表示元素沒渲染或頁面不可見。只有協商出穿透的那條連線的 `layout` 會被採用；欄位不合法的訊息被忽略。
+
+### 頁面責任與退回
+
+穿透時元素是透明的，後方的祖先如果畫了不透明背景，就會蓋住原生內容。`auto` 以 `pageReady` 偵測（元素往上到 `<html>`，每個祖先的 `background-color` alpha < 0.99 且 `background-image` 為 `none`），不通過就退回鏡像；明確寫 `mode="passthrough"` 不偵測，由頁面作者自負責任。偵測不涵蓋兄弟元素、偽元素、`box-shadow` 遮罩等，這些頁面要改用 `mode="mirror"`。
+
+### Android 的 WebView 透明
+
+`transparentBackground` 在 WebView 還沒掛上畫面時設，Chromium 的底色沒有跟著變透明（頁面繼續畫白色）；掛上之後再設才生效。`AqutterWebView.prepare()` 因此在掛上後再套用一次。
+
+### 規格與實測
+
+完整的介面契約（含相容性與變更紀錄）在 `.kn-project/plans/2611171503-native-passthrough-mode/plan.md`（歸檔後在 `archive/`）。前置實驗（Android 平板，滿版地圖，拖曳約 17 秒）：穿透視窗掉幀 0／1156（0%）、p99 10 ms；鏡像 223／773（28.9%）、p99 48 ms。
+
 ## 效能設計
 
 | 機制 | 說明 |

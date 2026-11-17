@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 import 'native_channel.dart';
 import 'native_frame.dart';
 import 'native_inflight.dart';
+import 'native_mode.dart';
 import 'native_session.dart';
 
 /// 每個連線允許同時未被確認的幀數。
@@ -68,6 +69,19 @@ class AqutterNativeHost with WidgetsBindingObserver {
 
   /// 網頁回報看不到的連線（預設看得到）。
   final Set<WebSocket> _hidden = {};
+
+  /// 各工作階段中，協商出穿透模式的那條連線（只有它的 `layout` 會被採用）。
+  final Map<String, WebSocket> _passthroughOwners = {};
+  final ValueNotifier<int> _passthroughCount = ValueNotifier<int>(0);
+
+  /// 目前生效為穿透模式的工作階段數。
+  ///
+  /// 殼監聽它：大於 0 時把 WebView 設為透明（穿透的原生內容在 WebView 下面），回到 0 時還原不透明。
+  ValueListenable<int> get passthroughSessions => _passthroughCount;
+
+  /// 殼確定無法使 WebView 透明時設為 `false`：之後的模式協商一律退回鏡像（原因 `transparent-failed`）。
+  /// 只影響**之後**的協商，已經是穿透的工作階段不受影響。預設 `true`。
+  bool passthroughAvailable = true;
 
   /// 目前的連線資訊；伺服器尚未啟動或已 [stop] 時為 `null`。
   ///
@@ -133,9 +147,12 @@ class AqutterNativeHost with WidgetsBindingObserver {
     _clients.clear();
     _inFlight.clear();
     _hidden.clear();
+    _passthroughOwners.clear();
     for (final session in _sessions.values) {
+      session.setPassthrough(false);
       session.clientCountChanged(0, visible: 0);
     }
+    _recountPassthrough();
     await ensureStarted();
   }
 
@@ -159,7 +176,9 @@ class AqutterNativeHost with WidgetsBindingObserver {
       return;
     }
     _sessions.remove(session.id);
+    _passthroughOwners.remove(session.id);
     session.dispose();
+    _recountPassthrough();
     final sockets = _clients.remove(session.id);
     for (final socket in sockets ?? const <WebSocket>{}) {
       _inFlight.remove(socket);
@@ -329,6 +348,12 @@ class AqutterNativeHost with WidgetsBindingObserver {
     // 工作階段已經被取消登記時 _clients[id] 已不存在，但這個連線的狀態仍要清掉，否則每次重新註冊都會留下殘骸
     _inFlight.remove(socket);
     _hidden.remove(socket);
+    if (_passthroughOwners[id] == socket) {
+      // 協商出穿透的連線斷了：回到鏡像（沒有網頁在看，不擷取）
+      _passthroughOwners.remove(id);
+      _sessions[id]?.setPassthrough(false);
+      _recountPassthrough();
+    }
     final sockets = _clients[id];
     if (sockets == null) {
       return;
@@ -369,6 +394,15 @@ class AqutterNativeHost with WidgetsBindingObserver {
               ?..autoMaxInFlight = false
               ..maxInFlight = limit.toInt();
           }
+        case 'mode':
+          _negotiateMode(id, socket, decoded);
+        case 'layout':
+          if (_passthroughOwners[id] == socket) {
+            final layout = AqutterNativeLayout.tryParse(decoded);
+            if (layout != null) {
+              _sessions[id]?.updateLayout(layout);
+            }
+          }
         case 'visibility':
           if (decoded['visible'] == false) {
             _hidden.add(socket);
@@ -384,6 +418,35 @@ class AqutterNativeHost with WidgetsBindingObserver {
     catch (error) {
       debugPrint('[aqutter-native:$id] bad message: $error');
     }
+  }
+
+  /// 模式協商：網頁連線後的第一則訊息 `{"type":"mode","request":…,"pageReady":…}`。
+  /// 依 [decideAqutterNativeMode] 決定生效模式並回覆；沒有送這則訊息的連線視為鏡像（舊版網頁）。
+  void _negotiateMode(String id, WebSocket socket, Map<String, dynamic> message) {
+    final session = _sessions[id];
+    if (session == null) {
+      return;
+    }
+    final decision = decideAqutterNativeMode(
+      request: AqutterNativeMode.tryParse(message['request']) ?? AqutterNativeMode.auto,
+      widgetMode: session.mode,
+      platformSupported: aqutterNativePassthroughSupported(),
+      pageReady: message['pageReady'] == true,
+      passthroughAvailable: passthroughAvailable,
+    );
+    if (decision.passthrough) {
+      _passthroughOwners[id] = socket;
+    }
+    else if (_passthroughOwners[id] == socket) {
+      _passthroughOwners.remove(id);
+    }
+    session.setPassthrough(_passthroughOwners.containsKey(id));
+    _recountPassthrough();
+    socket.add(jsonEncode(decision.toJson()));
+  }
+
+  void _recountPassthrough() {
+    _passthroughCount.value = _sessions.values.where((session) => session.passthrough).length;
   }
 
   int _visibleCount(String id) => (_clients[id] ?? const <WebSocket>{}).where((socket) => !_hidden.contains(socket)).length;
