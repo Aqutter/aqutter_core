@@ -55,6 +55,9 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[方向]** 使用者選擇「直接開計畫修抖動」（不先單獨做實驗），所以實驗納入本計畫第一階段；實驗結果可能改變範圍，需重新核准。
 - **[Q1 暫定]** Q1 的答案取決於 Phase 1 結果，使用者核准時未另行勾選；Phase 1 結束時再請示，Phase 2 之前必須已確認。
 - **[完成後]** commit + 開 PR（使用者核准）。
+- **[Phase 1 結果：沒有證實也沒有推翻]** 模擬器上，把觸控交給原生地圖的實驗**沒能讓原生地圖收到拖曳**：依序做了 (1) 隱藏原生 WebView＋打開 `GMSMapView` 的 scroll／zoom 手勢；(2) 再讓 plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`；(3) 再讓殼把 WebView 包進 `IgnorePointer`。每一步都用 `swipe` 拖曳後截圖比對，地圖都沒有移動。原因未確定，推測是 Flutter 端的 platform view 觸控仲裁（`FlutterTouchInterceptingView` 在 Flutter 手勢競技場決定前不放行）還有其他攔截者。因此「原生直接接觸控是否平順」**沒有驗證到**。
+- **[Phase 1 其他量測]** 以 `sample` 抓拖曳期間主執行緒：幾乎閒置；以 `lldb` 確認 `GMSMapView.preferredFrameRate` 已是最大值。
+- **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
 
 ## Git Completion Policy
