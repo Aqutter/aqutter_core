@@ -36,13 +36,13 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
   - `aqutter_core` — 解析 `webRegions`、計算原生觸控區域、Dart 層 hit test 閘、iOS `NativeTouchRouter`、對 plugin 暴露「原生觸控是否啟用」；spike 也在此　issue: `Aqutter/aqutter_core#35`
   - `aqutter-js` — 取樣並回報 `webRegions`（`layout` 訊息新增欄位）　issue: 待建立（核准後）
   - `aqutter-plugins`（`packages/google-maps`）— 原生觸控啟用時 `GoogleMap` 帶 `EagerGestureRecognizer`　issue: 待建立（核准後）
-  - `aqutter`（殼）— **不改**（WebView 的 Dart 閘放在 core 的 `AqutterWebView` 內，殼不必動）；合併後只需同步 manifest（見 Manual Follow-ups）
+  - `aqutter`（殼）— 只改 `lib/aqutter.dart` 的轉出清單，加入 `AqutterNativeTouch`（rev 3，plugin 只依賴殼）；WebView 的 Dart 閘放在 core 的 `AqutterWebView` 內，殼不必動；合併後另需同步 manifest（見 Manual Follow-ups）　issue: 待建立
 - **執行順序相依**: spike（core）→ core（契約提供方，先合）→ js、plugins（消費方，可平行，各自依賴 core 的契約但不依賴其程式碼）→ 端到端驗證。
 - **跨 repo 檔案指涉**: 無需要讀取他 repo 的檔案才能實作本 repo 的部分（契約已寫死）；端到端驗證用 `aqutter-nuxt-app` 的 `app/pages/map-effects.vue`（只讀、本機覆寫）。
 - **合併後的連動**: `aqutter` 的 manifest 同步 core／js／plugins 的新 ref、`aqutter-cli` snapshot、`aqutter-nuxt-app` 鎖定檔前進；文件「穿透的觸控」說明更新。
 
 ## Contract / 介面契約
-- **契約正本 repo**: `aqutter_core`　**修訂號**: `rev 2`　**狀態**: `凍結（核准日 2026-11-18）`
+- **契約正本 repo**: `aqutter_core`　**修訂號**: `rev 3`　**狀態**: `凍結（核准日 2026-11-18）`
 
 ### 1. 端點
 本契約沒有 HTTP 端點。介面是既有的「網頁 → 原生」穿透訊息 `layout`（WebSocket JSON，`aqutter-js` 送、`aqutter_core` 收）新增一個欄位，加上 core 對 plugin 暴露一個旗標。
@@ -50,7 +50,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 | # | 介面 | 方向 | 用途 |
 |---|---|---|---|
 | 1 | `layout` 訊息新增欄位 `webRegions` | `aqutter-js` → `aqutter_core` | 回報元素矩形內「網頁要接管觸控」的區域 |
-| 2 | `AqutterNativeTouch.of(BuildContext)`（回傳 `ValueListenable<bool>`，`AqutterNative` 的 child 底下可讀；從 `package:aqutter_core/aqutter_core.dart` 匯出） | `aqutter_core` → plugin | 告訴 plugin 目前觸控是否直接進原生（plugin 據此在原生 view 的手勢競技場宣告） |
+| 2 | `AqutterNativeTouch.of(BuildContext)`（回傳 `ValueListenable<bool>`，`AqutterNative` 的 child 底下可讀；從 `package:aqutter_core/aqutter_core.dart` 匯出，並由殼 `package:aqutter/aqutter.dart` 轉出；plugin 只依賴殼，從殼取用） | `aqutter_core` → plugin | 告訴 plugin 目前觸控是否直接進原生（plugin 據此在原生 view 的手勢競技場宣告） |
 
 ### 2. 欄位
 **#1 `layout`（既有欄位不變，僅新增）**
@@ -86,6 +86,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 
 ### 6. 變更紀錄
 - 2026-11-18　rev 1 → rev 2：(1) 介面 #2 由「`AqutterNativeContext.nativeTouch`」改為 `AqutterNativeTouch.of(context)`——plugin 實際拿到的 `AqutterPluginContext` 來自殼套件 `aqutter`，加欄位要動殼；改由 core 以 `InheritedNotifier` 提供，plugin 在 `AqutterNative` 的 child 內讀取，殼維持不動。(2) 區域邊界歸屬改為「不保證（±1px）」（原寫邊界屬於網頁，Dart `Rect.contains` 與 UIKit `CGRect.contains` 都是左上含、右下不含，無法逐字保證）。影響：`aqutter_core`（已依 rev 2 實作）、`aqutter-plugins`（讀取方式）；`aqutter-js` 不受影響。
+- 2026-11-18　rev 2 → rev 3：`AqutterNativeTouch` 要能被 plugin 取用，但 plugin 只依賴殼套件 `aqutter`，殼對 core 的轉出是 `show` 清單，沒有列入就看不到。改為由殼在 `lib/aqutter.dart` 把 `AqutterNativeTouch` 加入轉出清單（殼多一行改動，納入本計畫成為第四個 repo）。影響：`aqutter`（新增，issue 另建）、`aqutter-plugins`（從殼取用）；`aqutter_core`、`aqutter-js` 不受影響。
 
 ## Impact Files
 （本 repo 自己的檔案；路徑相對 `aqutter_core` 根目錄。**spike 通過前，以下為預計，spike 若改變做法需回計畫更新。**）
