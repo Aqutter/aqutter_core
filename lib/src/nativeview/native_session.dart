@@ -60,6 +60,9 @@ class AqutterNativeSession {
   /// 穿透模式下網頁最近回報的元素矩形；尚未回報、或不是穿透模式時為 `null`。
   final ValueNotifier<AqutterNativeLayout?> layoutListenable = ValueNotifier<AqutterNativeLayout?>(null);
 
+  /// 是否有任何網頁連線的變動通知（供 widget 決定要不要繪製 child，見 `AqutterNative` 的穿透說明）。
+  final ValueNotifier<bool> hasClientsListenable = ValueNotifier<bool>(false);
+
   /// 送出一個二進位幀給所有連線；由 host 掛上。
   void Function(Uint8List header, Uint8List payload)? _send;
 
@@ -167,6 +170,7 @@ class AqutterNativeSession {
       markDirty();
     }
     _clients = count;
+    hasClientsListenable.value = count > 0;
     final nextVisible = visible ?? count;
     if (nextVisible > _visibleClients) {
       markDirty(); // 重新看得到時第一幀要立刻有
@@ -312,6 +316,7 @@ class AqutterNativeSession {
     viewportListenable.dispose();
     passthroughListenable.dispose();
     layoutListenable.dispose();
+    hasClientsListenable.dispose();
     _send = null;
     _canSend = null;
   }

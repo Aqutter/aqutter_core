@@ -524,12 +524,23 @@ class _AqutterNativeState extends State<AqutterNative> {
     if (session == null) {
       return boundary;
     }
+    final passthroughSessions = AqutterNativeHost.instance.passthroughSessions;
     return ListenableBuilder(
-      listenable: Listenable.merge([session.passthroughListenable, session.layoutListenable]),
+      listenable: Listenable.merge([
+        session.passthroughListenable,
+        session.layoutListenable,
+        session.hasClientsListenable,
+        passthroughSessions,
+      ]),
       child: boundary,
       builder: (context, child) {
         if (session.passthrough) {
           return _buildPassthrough(session.layoutListenable.value, child!);
+        }
+        if (passthroughSessions.value > 0 && !session.hasClients) {
+          // 有穿透中的工作階段時 WebView 是透明的：沒有網頁元素的這個 child 不能從透明處透出來蓋住穿透的內容。
+          // 保持掛載、照常排版，只是不繪製（與穿透尚無矩形時相同）；有網頁連線的鏡像要照常繪製才擷取得到。
+          return Offstage(child: _buildMirror(session, child!));
         }
         return _buildMirror(session, child!);
       },
