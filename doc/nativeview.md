@@ -105,7 +105,7 @@ AqutterNativeHost.instance.registerChannel('bench.echo', (connection) {
 | 標籤 | 顯示 canvas | 透明，只佔版面（shadow DOM 不建立 canvas） |
 | 手勢、指令、`pointer` | 相對元素 0..1 的訊息 | **相同** |
 | 頁面條件 | 無 | 元素後方的祖先不可有不透明背景 |
-| 平台 | 全部 | Android（實機驗證）與 iOS（iPhone 17 Pro 模擬器驗證，實機未驗證）；macOS、Windows、Linux、Web 退回鏡像 |
+| 平台 | 全部 | Android（實機驗證）、iOS（iPhone 17 Pro 模擬器驗證，實機未驗證）與 Windows（debug，顯示縮放 125%）；macOS、Linux、Web 退回鏡像 |
 
 ### Dart 端
 
@@ -173,6 +173,17 @@ iPhone 17 Pro 模擬器（iOS 26.4），以 aqutter 殼＋aqutter-js＋google-ma
 
 - **網頁的兄弟元素有不透明背景**：`auto` 的偵測只看祖先，頁面其他位置（例如與地圖同層的底板）有不透明背景時，WebView 雖已透明，地圖仍被網頁蓋住。除錯時把網頁所有不透明背景清掉，地圖就會透出來。
 - **多個 plugin 的底層疊放**：殼把每個 plugin 的 `buildUnderlay` 依序疊在 WebView 下面。沒有網頁連線的 `AqutterNative`（例如 App 裝了 `mirror-demo`，頁面卻沒有對應元素）在有穿透工作階段時不繪製 child（見下節），不會蓋住穿透地圖；但底層若放的不是 `AqutterNative`（任意不透明 widget），仍會蓋住前面的穿透地圖，這種底層要自己避開，或把地圖放在最上面那一層。
+
+### Windows 的驗證範圍與注意事項
+
+Windows 11（debug 建置，顯示縮放 125%），以 aqutter 殼＋aqutter-js＋mirror-demo plugin 的真實整合驗證：`passthrough` 協商成穿透；WebView 變透明後，與元素同位置同大小的洞裡看得到底下 Flutter 畫的格線與圓球（貼圖的 alpha 有保留）；位置與大小在 125% 縮放下與網頁回報的 CSS 像素對得上；穿透時疊在上面的 HTML 照常顯示，點擊與拖曳手勢照常轉給原生內容；退回鏡像與還原行為與 Android 相同。
+
+沒有驗證，需要時請自行確認：
+
+- **其他顯示縮放**（100%、150%、200%）與多螢幕、跨螢幕移動視窗。
+- **release 建置與效能**：debug 下沒有量過穿透的繪製成本。
+- **google-maps**：Windows 上它走網頁端的 JS 版地圖（沒有原生地圖可穿透），所以穿透在 Windows 只對 Flutter 自己畫的原生內容有意義。
+- Windows 的 WebView 以貼圖交給 Flutter 合成；穿透依賴貼圖保留 alpha，換 WebView2 執行階段版本或貼圖橋接方式後要重驗。
 
 ### Android 的 WebView 透明
 

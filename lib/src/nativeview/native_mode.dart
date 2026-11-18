@@ -82,14 +82,14 @@ class AqutterNativeModeDecision {
 
 /// 這個平台有沒有穿透模式的實作。
 ///
-/// Android（實機驗證過）與 iOS（模擬器驗證過，實機待驗）；
-/// macOS、Windows、Linux 與 Web 沒有實作。傳入 [platform] 方便測試。
+/// Android（實機驗證過）、iOS（模擬器驗證過，實機待驗）與 Windows（debug、顯示縮放 125% 驗證過）；
+/// macOS、Linux 與 Web 沒有實作。傳入 [platform] 方便測試。
 bool aqutterNativePassthroughSupported([TargetPlatform? platform]) {
   if (kIsWeb) {
     return false;
   }
   return switch (platform ?? defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.windows => true,
     _ => false,
   };
 }

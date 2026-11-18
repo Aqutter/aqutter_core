@@ -142,11 +142,11 @@ void main() {
   });
 
   group('platform support', () {
-    test('only Android and iOS are supported for now', () {
-      for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    test('Android, iOS and Windows are supported for now', () {
+      for (final platform in [TargetPlatform.android, TargetPlatform.iOS, TargetPlatform.windows]) {
         expect(aqutterNativePassthroughSupported(platform), isTrue, reason: '$platform');
       }
-      for (final platform in [TargetPlatform.macOS, TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.fuchsia]) {
+      for (final platform in [TargetPlatform.macOS, TargetPlatform.linux, TargetPlatform.fuchsia]) {
         expect(aqutterNativePassthroughSupported(platform), isFalse, reason: '$platform');
       }
     });
