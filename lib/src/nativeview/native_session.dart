@@ -3,8 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
-import 'dart:ui' show Rect;
-
 import 'native_frame.dart';
 import 'native_touch_gate.dart';
 import 'native_mode.dart';
@@ -155,9 +153,26 @@ class AqutterNativeSession {
       return;
     }
     layoutListenable.value = null;
-    NativeTouchRegions.instance.update(const <Rect>[]); // TMPSPIKE：離開穿透要清掉原生觸控區域
+    _updateNativeTouch(null);
     markDirty();
     _syncTimer();
+  }
+
+  /// 觸控是否直接進原生（iOS、穿透、client 有回報 `webRegions`、元素可見）。plugin 據此打開原生 view 的手勢宣告。
+  final ValueNotifier<bool> nativeTouchListenable = ValueNotifier<bool>(false);
+
+  void _updateNativeTouch(AqutterNativeLayout? layout) {
+    final regions = layout?.webRegions;
+    final enabled = NativeTouchRegions.instance.supported && passthrough && layout != null && layout.visible && regions != null;
+    if (!enabled) {
+      NativeTouchRegions.instance.clear(this);
+    } else {
+      final origin = layout.rect.topLeft;
+      NativeTouchRegions.instance.set(this, subtractRects(layout.rect, [for (final r in regions) r.shift(origin)]));
+    }
+    if (!_disposed) {
+      nativeTouchListenable.value = enabled;
+    }
   }
 
   /// 穿透模式下網頁回報元素矩形（host 呼叫）。與上一次相同的內容忽略。
@@ -166,8 +181,7 @@ class AqutterNativeSession {
       return;
     }
     layoutListenable.value = next;
-    // TMPSPIKE：測試區域＝元素矩形扣掉底部 120（按鈕區）
-    NativeTouchRegions.instance.update(next.visible ? <Rect>[Rect.fromLTWH(next.left, next.top, next.width, next.height - 120)] : const <Rect>[]);
+    _updateNativeTouch(next);
   }
 
   /// 網頁連線數改變。新連線預設為「看得到」，直到它回報 `visibility`。
@@ -319,7 +333,8 @@ class AqutterNativeSession {
 
   void dispose() {
     _disposed = true;
-    NativeTouchRegions.instance.update(const <Rect>[]); // TMPSPIKE
+    _updateNativeTouch(null);
+    nativeTouchListenable.dispose();
     viewportListenable.dispose();
     passthroughListenable.dispose();
     layoutListenable.dispose();

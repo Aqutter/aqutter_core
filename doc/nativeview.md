@@ -174,6 +174,18 @@ iPhone 17 Pro 模擬器（iOS 26.4），以 aqutter 殼＋aqutter-js＋google-ma
 - **網頁的兄弟元素有不透明背景**：`auto` 的偵測只看祖先，頁面其他位置（例如與地圖同層的底板）有不透明背景時，WebView 雖已透明，地圖仍被網頁蓋住。除錯時把網頁所有不透明背景清掉，地圖就會透出來。
 - **多個 plugin 的底層疊放**：殼把每個 plugin 的 `buildUnderlay` 依序疊在 WebView 下面。沒有網頁連線的 `AqutterNative`（例如 App 裝了 `mirror-demo`，頁面卻沒有對應元素）在有穿透工作階段時不繪製 child（見下節），不會蓋住穿透地圖；但底層若放的不是 `AqutterNative`（任意不透明 widget），仍會蓋住前面的穿透地圖，這種底層要自己避開，或把地圖放在最上面那一層。
 
+### iOS 穿透的觸控：直接進原生（`webRegions`）
+
+穿透時 WebView 疊在原生內容上，觸控原本先進 WebView，由網頁手勢辨識後經 WebSocket → Dart → plugin 再去移動原生內容。這條路徑在 iPad 實機上拖曳地圖會抖。iOS 因此改成：**觸控起點落在元素矩形內、且該點網頁沒有要接管的內容時，觸控直接交給原生 view**（原生手勢，與沒有網頁時一樣平順）；落在網頁內容（疊在地圖上的按鈕、面板）則照舊進 WebView。一個觸控序列從頭到尾歸同一邊。
+
+- **網頁端回報**：新版 `aqutter-js` 在 `layout` 訊息帶 `webRegions`（相對元素左上角、CSS 像素的矩形清單，至多 64 個；沒有網頁區域時是 `[]`）。區域以 `document.elementFromPoint` 取樣：命中元素本身的點算原生，其餘算網頁，所以 `pointer-events`、堆疊順序與不透明覆蓋都照 DOM 語意。**沒有 `pointer-events: none` 的裝飾層（漸層遮罩）算網頁區域**，它底下的地圖不能直接拖。
+- **舊 client**（不帶 `webRegions`）：行為不變，觸控全部走網頁。格式不合的 `webRegions` 整個忽略（視為舊 client）。
+- **兩層配合**：Dart 層 `AqutterWebView` 在原生觸控區域內對 Flutter hit test 透明；iOS 層 `NativeTouchRouter`（蓋在 window 最上層的透明 view）在區域內回傳底下的原生 view，其他點不參與。離開穿透、元素隱藏或 session 釋放時區域會清掉。
+- **plugin 要配合**：原生 view 要在 Flutter 手勢競技場宣告自己，否則上層 WebView 會贏走競技場。`AqutterNativeTouch.of(context)`（`AqutterNative` 的 child 底下可讀的 `ValueListenable<bool>`）為 `true` 時，plugin 的 platform view 帶 `EagerGestureRecognizer`（google-maps 是 `GoogleMap.gestureRecognizers`）。
+- **只有 iOS**。Android、macOS、Windows 與 mirror 不受影響。
+- **已知限制**：Flutter 端疊在原生區域之上的覆蓋層（非 HTML，例如 plugin 的 `buildOverlay`）在原生觸控區域內收不到觸控；原生內容被拖動後，網頁端的狀態（例如相機位置）要靠 plugin 回報（google-maps 有 `cameraIdle`）。
+- **驗證**：iPad（iPadOS 27）實機，以 spike 固定區域＋plugin 補丁驗證拖曳、縮放、按鈕點擊、切 mirror 都正常、拖曳不再抖；正式的 `webRegions` 取樣見各 repo 的驗證紀錄。
+
 ### Windows 的驗證範圍與注意事項
 
 Windows 11（debug 建置，顯示縮放 125%），以 aqutter 殼＋aqutter-js＋mirror-demo plugin 的真實整合驗證：`passthrough` 協商成穿透；WebView 變透明後，與元素同位置同大小的洞裡看得到底下 Flutter 畫的格線與圓球（貼圖的 alpha 有保留）；位置與大小在 125% 縮放下與網頁回報的 CSS 像素對得上；穿透時疊在上面的 HTML 照常顯示，點擊與拖曳手勢照常轉給原生內容；退回鏡像與還原行為與 Android 相同。

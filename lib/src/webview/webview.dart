@@ -1,5 +1,4 @@
 import 'dart:async';
-import '../nativeview/native_touch_gate.dart';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:aqutter_core/src/platform_interface/flutter_webview_platform_interface.dart';
 
 import '../find_interaction/find_interaction_controller.dart';
+import '../nativeview/native_touch_gate.dart';
 import '../pull_to_refresh/main.dart';
 import '../pull_to_refresh/pull_to_refresh_controller.dart';
 import '../webview_environment/webview_environment.dart';

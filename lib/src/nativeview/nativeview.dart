@@ -8,6 +8,7 @@ export 'native_mode.dart' show AqutterNativeLayout, AqutterNativeMode, AqutterNa
 export 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart' show AqutterNativeEndpoint, AqutterNativeHost, aqutterNativeMaxInFlight;
 export 'native_session.dart' show AqutterNativeFrameCapture, AqutterNativeMessageHandler, AqutterNativeSession;
 export 'native_widget.dart' show AqutterNative;
+export 'native_touch_gate.dart' show AqutterNativeTouch;
 export 'native_adaptive.dart' show AqutterNativeQuality, AqutterNativeScaler;
 export 'native_capture.dart' show AqutterNativeCapture;
 export 'native_pointer.dart' show AqutterNativePointerInjector;

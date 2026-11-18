@@ -144,6 +144,7 @@ class AqutterNativeLayout {
     required this.width,
     required this.height,
     required this.visible,
+    this.webRegions,
   });
 
   final double left;
@@ -153,6 +154,15 @@ class AqutterNativeLayout {
 
   /// 元素沒渲染、`display:none`、寬或高為 0、或頁面不可見時為 `false`。
   final bool visible;
+
+  /// 元素矩形內「網頁要接管觸控」的區域，相對元素左上角（CSS 像素）。
+  ///
+  /// `null`＝client 不支援原生觸控（舊 client），觸控全部走網頁；非 `null`（含空清單）＝支援，
+  /// 元素矩形扣掉這些區域的部分，觸控可以直接交給原生。
+  final List<Rect>? webRegions;
+
+  /// [webRegions] 的數量上限。
+  static const int maxWebRegions = 64;
 
   /// 解析 `{"type":"layout",...}` 訊息；欄位缺漏、型別不符、不是有限數或寬高為負時回 `null`。
   static AqutterNativeLayout? tryParse(Map<String, dynamic> message) {
@@ -185,7 +195,34 @@ class AqutterNativeLayout {
       width: values[2],
       height: values[3],
       visible: visible,
+      webRegions: _parseWebRegions(message['webRegions']),
     );
+  }
+
+  /// 解析 `webRegions`：格式不合（非陣列、超過上限、元素缺欄位、非有限數、寬高不為正）就整個忽略（回 `null`）。
+  static List<Rect>? _parseWebRegions(Object? raw) {
+    if (raw is! List || raw.length > maxWebRegions) {
+      return null;
+    }
+    final regions = <Rect>[];
+    for (final item in raw) {
+      if (item is! Map) {
+        return null;
+      }
+      final x = item['x'];
+      final y = item['y'];
+      final width = item['width'];
+      final height = item['height'];
+      if (x is! num || y is! num || width is! num || height is! num) {
+        return null;
+      }
+      final values = [x.toDouble(), y.toDouble(), width.toDouble(), height.toDouble()];
+      if (values.any((value) => !value.isFinite) || values[2] <= 0 || values[3] <= 0) {
+        return null;
+      }
+      regions.add(Rect.fromLTWH(values[0], values[1], values[2], values[3]));
+    }
+    return List<Rect>.unmodifiable(regions);
   }
 
   /// 這個矩形在 WebView 視窗座標系中的位置與大小。
@@ -198,12 +235,13 @@ class AqutterNativeLayout {
       other.top == top &&
       other.width == width &&
       other.height == height &&
-      other.visible == visible;
+      other.visible == visible &&
+      listEquals(other.webRegions, webRegions);
 
   @override
-  int get hashCode => Object.hash(left, top, width, height, visible);
+  int get hashCode => Object.hash(left, top, width, height, visible, webRegions == null ? null : Object.hashAll(webRegions!));
 
   @override
   String toString() =>
-      'AqutterNativeLayout($left, $top, ${width}x$height, visible: $visible)';
+      'AqutterNativeLayout($left, $top, ${width}x$height, visible: $visible, webRegions: $webRegions)';
 }
