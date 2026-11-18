@@ -67,6 +67,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[2026-11-18 新實驗：關掉 WKWebView 捲動與拖曳追蹤，沒有差別]** 假設「WKWebView 的捲動追蹤讓 run loop 進入 tracking 模式、節流地圖渲染」。暫時在 `AqutterWebView` 設 `scrollView.isScrollEnabled = false` 與 `scrollView.panGestureRecognizer.isEnabled = false`（本地 core 覆寫，`package_config` 已確認指向本機），在 map-effects 頁同一道 swipe 錄影逐幀比對：基準與改後都是穩定 26px／幀的位移夾雜 1–2 幀停頓、結尾一次跳 3 幀的位移，無差異。**假設不成立**，暫時改動已還原。附帶觀察：這次在新 main＋新頁面、模擬器合成 swipe 下，抖動比先前量到的（停約 265ms 再跳 40–64px）輕微得多，模擬器合成 swipe 不一定能重現使用者實機上的抖動；實機（iPad）仍是唯一可信的判準。
 - **[2026-11-18 設計分析：競技場只解決一半]** 先前確認的是「Flutter 手勢競技場把地圖封鎖」，但要讓地圖真的收到手指，還需要 **UIKit 層**的 hit test 讓觸控落在地圖的 view 上。穿透時 WebView 的 platform view 疊在地圖之上，UIKit 把整個 WebView 範圍的觸控交給它外面的 `FlutterTouchInterceptingView`；Flutter 沒有提供「這個 platform view 在某些點對 UIKit 透明」的機制（`PlatformViewHitTestBehavior.transparent` 只管 Dart 端的 hit test）。先前實驗之所以成功，是因為把**原生 WebView 整個隱藏**。所以「地圖區域走原生、按鈕區域走網頁」不是只改手勢宣告就能做到，需要能依區域切換的 UIKit 層做法，目前沒有已驗證可行的方案。
 - **[候選修法，皆未驗證]** (a) 區域切換：回報互動區域，依觸控落點動態切換 WebView 平台 view 的 `isUserInteractionEnabled`／隱藏（難點：touchesBegan 前就要決定，且會有 Flutter 與 UIKit 兩層狀態）；(b) 穿透時整頁地圖手勢走原生、HTML 按鈕改成「只在不被地圖覆蓋的區域可點」（行為變更，與 map-effects 頁疊在地圖上的按鈕衝突）；(c) 不改觸控路由，改查轉送路徑本身為何在真實觸控下出現停頓（目前未定位）。
+- **[2026-11-18 iPad 實機重測：最新版仍會抖]** 以各 repo 最新 main（core 含 #37／#39、js 含 #19、plugin 含 #11，未做任何覆寫或補丁）裝到 iPad，在 map-effects 頁以 `auto`（穿透）拖曳地圖，使用者回報**仍然會抖**。結論：問題在實機與最新版都存在，不是舊版或模擬器合成 swipe 的假象；模擬器合成 swipe 不能當判準，後續驗證以實機為準。簽署團隊的暫時改動已還原，dev server 已停。
 - **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
 
