@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../nativeview/native_touch_gate.dart';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
@@ -920,7 +921,7 @@ class _AqutterWebViewState extends State<AqutterWebView> {
   @override
   Widget build(BuildContext context) {
     _platforms.add(widget.platform);
-    return widget.platform.build(context);
+    return NativeTouchGate(child: widget.platform.build(context));
   }
 
   @override

@@ -88,6 +88,7 @@ public class AqutterWebView: WKWebView, UIScrollViewDelegate, WKUIDelegate,
         uiDelegate = self
         navigationDelegate = self
         scrollView.delegate = self
+        NativeTouchRouter.shared.webViews.add(self)
         longPressRecognizer = UILongPressGestureRecognizer()
         longPressRecognizer.delegate = self
         longPressRecognizer.addTarget(self, action: #selector(longPressGestureDetected))

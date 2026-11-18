@@ -143,6 +143,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[2026-11-18 iPad 實機驗證：原生直接接觸控不抖]** 在 iPad 上套暫時補丁（殼把 WebView 包進 `IgnorePointer`、plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`、core 把 `AqutterWebView` 設 `isHidden`，本地覆寫已確認生效），手指直接拖曳原生地圖，使用者回報**不抖**。與前一條「最新版仍會抖」對照：**抖動來自現行「網頁轉送手勢 → Dart → moveCamera」路徑，原生直接接觸控在實機上平順，修法方向（讓觸控走原生）成立**。尚未解決的是如何在保留 HTML 按鈕可點的前提下做區域切換（見設計分析）。補丁、簽署團隊與覆寫已全數還原。
 - **[2026-11-18 設計與契約草擬]** Q1 使用者回覆「本計畫實作」。補了 `## Architecture`、`## Cross-Repo Scope`、`## Contract`（rev 1，草擬）、`## Impact Files`，並新增 Q2、Q3。設計重點：以觸控起點決定走原生或網頁；Dart 層 hit test 閘＋UIKit 層路由 view 兩層配合；網頁區域由 `aqutter-js` 以 `elementFromPoint` 取樣回報；殼不動；先做 core 單獨 spike，過關才實作契約。**依 Rule 2／19／28，需使用者核准後才動程式碼；核准時 Q2、Q3 一併拍板。**
 - **[2026-11-18 核准]** 使用者核准設計與契約 rev 1（凍結），並決議：Q2＝spike 不過關就停下、只歸檔文件開 PR；Q3＝照 DOM 語意；完成後＝commit + 開 PR（base main）。先做 Phase 2 spike（core 單獨）；過關後才為 `aqutter-js`、`aqutter-plugins` 建 issue 與共用分支。
+- **[2026-11-18 Phase 2 spike 過關]** core 單獨實作兩層路由（Dart `NativeTouchGate`＋UIKit `NativeTouchRouter`），區域用測試值（元素矩形扣掉底部 120）、plugin 用本機暫時補丁（`GoogleMap` 帶 `EagerGestureRecognizer`），**iPad 實機**驗證：區域內拖曳、縮放走原生**不抖**；底部 HTML 按鈕照常可點；切 mirror 後觸控正常（修了一個 spike 缺陷：離開穿透與 session 釋放時沒清區域，路由 view 繼續攔截，現於 `setPassthrough(false)`／`dispose` 清除）。模擬器同樣通過，且拖曳後網頁端相機狀態（label）有同步。**實作時學到的兩點**：(1) 只關掉 WebView 外層 `FlutterTouchInterceptingView` 不夠，要連最外層 `ChildClippingView`（整個畫面大小）一併略過，hit test 才會落到地圖；(2) 實機 debug 版只能由 `flutter run` 啟動，從主畫面圖示重開會白屏，且重裝後要在 iPad 上重新信任開發者。
 - **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
 

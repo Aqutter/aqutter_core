@@ -47,6 +47,7 @@ public class AqutterCorePlugin: NSObject, FlutterPlugin {
         
         registrar.register(FlutterWebViewFactory(plugin: self) as FlutterPlatformViewFactory, withId: FlutterWebViewFactory.VIEW_TYPE_ID)
         AqutterNativeCapture.register(with: registrar)
+        NativeTouchRouter.register(with: registrar)
         
         platformUtil = PlatformUtil(plugin: self)
         aqutterBrowserManager = AqutterBrowserManager(plugin: self)

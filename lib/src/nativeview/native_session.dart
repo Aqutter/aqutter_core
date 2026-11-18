@@ -3,7 +3,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import 'dart:ui' show Rect;
+
 import 'native_frame.dart';
+import 'native_touch_gate.dart';
 import 'native_mode.dart';
 import 'native_stats.dart';
 
@@ -152,6 +155,7 @@ class AqutterNativeSession {
       return;
     }
     layoutListenable.value = null;
+    NativeTouchRegions.instance.update(const <Rect>[]); // TMPSPIKE：離開穿透要清掉原生觸控區域
     markDirty();
     _syncTimer();
   }
@@ -162,6 +166,8 @@ class AqutterNativeSession {
       return;
     }
     layoutListenable.value = next;
+    // TMPSPIKE：測試區域＝元素矩形扣掉底部 120（按鈕區）
+    NativeTouchRegions.instance.update(next.visible ? <Rect>[Rect.fromLTWH(next.left, next.top, next.width, next.height - 120)] : const <Rect>[]);
   }
 
   /// 網頁連線數改變。新連線預設為「看得到」，直到它回報 `visibility`。
@@ -313,6 +319,7 @@ class AqutterNativeSession {
 
   void dispose() {
     _disposed = true;
+    NativeTouchRegions.instance.update(const <Rect>[]); // TMPSPIKE
     viewportListenable.dispose();
     passthroughListenable.dispose();
     layoutListenable.dispose();

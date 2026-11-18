@@ -5,11 +5,11 @@
 - [x] 記錄結果；Q1 已確認為「本計畫實作」
 
 ## Phase 2 — Spike：core 單獨驗證兩層路由（不動契約，用固定測試區域）
-- [ ] Dart 層：`native_touch_gate.dart` 讓 `AqutterWebView` 在測試區域內對 Flutter hit test 透明
-- [ ] UIKit 層：`NativeTouchRouter` 在測試區域回傳底下的地圖 view，其他點回 `nil`
-- [ ] 暫時改 plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`（本機副本，不進 commit）
-- [ ] iPad 驗證：區域內拖曳走原生且不抖、縮放正常；區域外的 HTML 按鈕仍可點；Flutter 覆蓋層與啟動畫面觸控不受影響
-- [ ] **過關閘**：任一項不過就停下回報，依 Q2 處理，不進 Phase 3
+- [x] Dart 層：`native_touch_gate.dart` 讓 `AqutterWebView` 在測試區域內對 Flutter hit test 透明
+- [x] UIKit 層：`NativeTouchRouter` 在測試區域回傳底下的地圖 view，其他點回 `nil`
+- [x] 暫時改 plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`（本機副本，不進 commit）
+- [x] iPad 驗證：區域內拖曳走原生且不抖、縮放正常；區域外的 HTML 按鈕仍可點；Flutter 覆蓋層與啟動畫面觸控不受影響
+- [x] **過關閘**：任一項不過就停下回報，依 Q2 處理，不進 Phase 3
 
 ## Phase 3 — 實作（需 Phase 2 過關；契約 rev 1 凍結後）
 - [ ] 建立 `aqutter-js`、`aqutter-plugins` 的 issue 與共用分支，各補自己的計畫（契約逐字相同）
