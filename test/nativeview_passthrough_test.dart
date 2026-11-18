@@ -375,6 +375,48 @@ void main() {
       await _unmount(tester);
     }, variant: _supportedPlatforms);
 
+    testWidgets('while a session is passthrough, a widget with no web client is not painted; with a client it is', (tester) async {
+      Widget two() => Directionality(
+            textDirection: TextDirection.ltr,
+            child: Stack(children: [
+              Positioned.fill(child: AqutterNative(sessionId: 'map', child: const SizedBox(key: Key('map-child')))),
+              Positioned.fill(child: AqutterNative(sessionId: 'demo', child: const SizedBox(key: Key('demo-child')))),
+            ]),
+          );
+      await tester.pumpWidget(two());
+      expect(find.byKey(const Key('demo-child')), findsOneWidget, reason: 'no passthrough yet: unchanged mirror behaviour');
+
+      late _Client map;
+      await tester.runAsync(() async {
+        final endpoint = await AqutterNativeHost.instance.ensureStarted();
+        map = await _Client.connect(endpoint, 'map');
+        await map.negotiate('auto');
+        await _settle();
+      });
+      await tester.pump();
+      expect(find.byKey(const Key('demo-child')), findsNothing, reason: 'unpeered child must not show through the transparent WebView');
+      expect(find.byKey(const Key('demo-child'), skipOffstage: false), findsOneWidget, reason: 'but it stays mounted');
+
+      late _Client demo;
+      await tester.runAsync(() async {
+        demo = await _Client.connect(await AqutterNativeHost.instance.ensureStarted(), 'demo');
+        await _settle();
+      });
+      await tester.pump();
+      expect(find.byKey(const Key('demo-child')), findsOneWidget, reason: 'a web client is attached: painted so it can be captured');
+
+      await tester.runAsync(demo.close);
+      await tester.runAsync(_settle);
+      await tester.pump();
+      expect(find.byKey(const Key('demo-child')), findsNothing, reason: 'client left while still passthrough elsewhere');
+
+      await tester.runAsync(map.close);
+      await tester.runAsync(_settle);
+      await tester.pump();
+      expect(find.byKey(const Key('demo-child')), findsOneWidget, reason: 'no passthrough left: painted again');
+      await _unmount(tester);
+    }, variant: _supportedPlatforms);
+
     testWidgets('a mirror-only widget never goes passthrough', (tester) async {
       await tester.pumpWidget(app(const _Probe(), mode: AqutterNativeMode.mirror));
       late Map<String, dynamic> reply;

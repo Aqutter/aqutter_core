@@ -159,6 +159,12 @@ AqutterNative(
 
 穿透時元素是透明的，後方的祖先如果畫了不透明背景，就會蓋住原生內容。`auto` 以 `pageReady` 偵測（元素往上到 `<html>`，每個祖先的 `background-color` alpha < 0.99 且 `background-image` 為 `none`），不通過就退回鏡像；明確寫 `mode="passthrough"` 不偵測，由頁面作者自負責任。偵測不涵蓋兄弟元素、偽元素、`box-shadow` 遮罩等，這些頁面要改用 `mode="mirror"`。
 
+### 有穿透時，沒有網頁連線的 `AqutterNative` 不繪製
+
+WebView 透明時，Flutter 層裡所有 `AqutterNative` 的 child 都看得到。規則：只要有任何工作階段是穿透，**沒有網頁連線**（`hasClients` 為 `false`）的 `AqutterNative` 用 `Offstage` 隱藏 child——保持掛載、照常排版，只是不繪製。連線一建立就繪製（鏡像擷取需要它），穿透全部結束後也恢復繪製。沒有穿透工作階段時不做任何事，純鏡像的行為不變。
+
+限制：**有網頁連線的鏡像工作階段**仍照常繪製（擷取需要），穿透頁面上若同時有這種鏡像元素，它的 child 會從 WebView 透明處透出來。需要時請改用穿透，或讓該元素與穿透元素不同時出現在同一個 WebView。
+
 ### iOS 的驗證範圍與注意事項
 
 iPhone 17 Pro 模擬器（iOS 26.4），以 aqutter 殼＋aqutter-js＋google-maps plugin 的真實整合驗證：`auto` 協商成穿透、地圖畫在與元素同位置同大小的底層、執行期把 WebView 設成透明後網頁的 HTML 疊在地圖上、拖曳手勢與 `moveTo` 指令有效、`mirror` 與 `passthrough` 可切換。**實機與效能未驗證**（模擬器是軟體渲染）。
@@ -166,7 +172,7 @@ iPhone 17 Pro 模擬器（iOS 26.4），以 aqutter 殼＋aqutter-js＋google-ma
 驗證時遇到兩個不是 core 的問題，頁面與 App 要自己避開：
 
 - **網頁的兄弟元素有不透明背景**：`auto` 的偵測只看祖先，頁面其他位置（例如與地圖同層的底板）有不透明背景時，WebView 雖已透明，地圖仍被網頁蓋住。除錯時把網頁所有不透明背景清掉，地圖就會透出來。
-- **多個 plugin 的底層疊放**：殼把每個 plugin 的 `buildUnderlay` 依序疊在 WebView 下面，後面的不透明底層（例如示範用的 `mirror-demo`）會蓋住前面的穿透地圖。穿透時底層不要放不透明內容，或把地圖放在最上面那一層。
+- **多個 plugin 的底層疊放**：殼把每個 plugin 的 `buildUnderlay` 依序疊在 WebView 下面。沒有網頁連線的 `AqutterNative`（例如 App 裝了 `mirror-demo`，頁面卻沒有對應元素）在有穿透工作階段時不繪製 child（見下節），不會蓋住穿透地圖；但底層若放的不是 `AqutterNative`（任意不透明 widget），仍會蓋住前面的穿透地圖，這種底層要自己避開，或把地圖放在最上面那一層。
 
 ### Android 的 WebView 透明
 
