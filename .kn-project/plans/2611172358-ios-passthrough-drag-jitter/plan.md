@@ -42,7 +42,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **合併後的連動**: `aqutter` 的 manifest 同步 core／js／plugins 的新 ref、`aqutter-cli` snapshot、`aqutter-nuxt-app` 鎖定檔前進；文件「穿透的觸控」說明更新。
 
 ## Contract / 介面契約
-- **契約正本 repo**: `aqutter_core`　**修訂號**: `rev 1`　**狀態**: `草擬`
+- **契約正本 repo**: `aqutter_core`　**修訂號**: `rev 1`　**狀態**: `凍結（核准日 2026-11-18）`
 
 ### 1. 端點
 本契約沒有 HTTP 端點。介面是既有的「網頁 → 原生」穿透訊息 `layout`（WebSocket JSON，`aqutter-js` 送、`aqutter_core` 收）新增一個欄位，加上 core 對 plugin 暴露一個旗標。
@@ -109,14 +109,14 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **決議**：使用者回覆「本計畫實作」（2026-11-18）：在本計畫實作，補跨 repo 範圍與契約並重新核准。
 
 ### Q2. spike（core 單獨驗證兩層路由）在 iPad 上不過關時怎麼辦？ — 影響範圍：整個計畫
-- [ ] 選項 A：停下，把結果歸檔、開 PR（只含文件），修法另議　(建議，理由：不為了完成而硬做一個可能不能用的觸控層；iOS 觸控路由改壞會影響所有 iOS 穿透)
+- [x] 選項 A：停下，把結果歸檔、開 PR（只含文件），修法另議　(建議，理由：不為了完成而硬做一個可能不能用的觸控層；iOS 觸控路由改壞會影響所有 iOS 穿透)
 - [ ] 選項 B：改試其他做法再回來請示
-- **決議**：_(待使用者勾選)_　狀態：⏳ 待確認
+- **決議**：選項 A　狀態：✅ 已確認
 
 ### Q3. 網頁覆蓋層（沒有 `pointer-events: none` 的裝飾層）算網頁區域是否可接受？ — 影響範圍：aqutter-js 的取樣語意
-- [ ] 選項 A：是，照 DOM 語意（建議，理由：與現在行為一致，不需要在元素上額外標記）
+- [x] 選項 A：是，照 DOM 語意（建議，理由：與現在行為一致，不需要在元素上額外標記）
 - [ ] 選項 B：加一個屬性（例如 `data-aqutter-native-through`）讓某個覆蓋層明確「穿過去給原生」
-- **決議**：_(待使用者勾選)_　狀態：⏳ 待確認
+- **決議**：選項 A　狀態：✅ 已確認
 
 ## Manual Follow-ups / 人工收尾事項
 - **[合併後]** 實機驗證 — 在 iPad 實機確認拖曳不再抖 — agent 無法觀察實機畫面，需要你回報
@@ -142,6 +142,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[2026-11-18 iPad 實機重測：最新版仍會抖]** 以各 repo 最新 main（core 含 #37／#39、js 含 #19、plugin 含 #11，未做任何覆寫或補丁）裝到 iPad，在 map-effects 頁以 `auto`（穿透）拖曳地圖，使用者回報**仍然會抖**。結論：問題在實機與最新版都存在，不是舊版或模擬器合成 swipe 的假象；模擬器合成 swipe 不能當判準，後續驗證以實機為準。簽署團隊的暫時改動已還原，dev server 已停。
 - **[2026-11-18 iPad 實機驗證：原生直接接觸控不抖]** 在 iPad 上套暫時補丁（殼把 WebView 包進 `IgnorePointer`、plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`、core 把 `AqutterWebView` 設 `isHidden`，本地覆寫已確認生效），手指直接拖曳原生地圖，使用者回報**不抖**。與前一條「最新版仍會抖」對照：**抖動來自現行「網頁轉送手勢 → Dart → moveCamera」路徑，原生直接接觸控在實機上平順，修法方向（讓觸控走原生）成立**。尚未解決的是如何在保留 HTML 按鈕可點的前提下做區域切換（見設計分析）。補丁、簽署團隊與覆寫已全數還原。
 - **[2026-11-18 設計與契約草擬]** Q1 使用者回覆「本計畫實作」。補了 `## Architecture`、`## Cross-Repo Scope`、`## Contract`（rev 1，草擬）、`## Impact Files`，並新增 Q2、Q3。設計重點：以觸控起點決定走原生或網頁；Dart 層 hit test 閘＋UIKit 層路由 view 兩層配合；網頁區域由 `aqutter-js` 以 `elementFromPoint` 取樣回報；殼不動；先做 core 單獨 spike，過關才實作契約。**依 Rule 2／19／28，需使用者核准後才動程式碼；核准時 Q2、Q3 一併拍板。**
+- **[2026-11-18 核准]** 使用者核准設計與契約 rev 1（凍結），並決議：Q2＝spike 不過關就停下、只歸檔文件開 PR；Q3＝照 DOM 語意；完成後＝commit + 開 PR（base main）。先做 Phase 2 spike（core 單獨）；過關後才為 `aqutter-js`、`aqutter-plugins` 建 issue 與共用分支。
 - **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
 
