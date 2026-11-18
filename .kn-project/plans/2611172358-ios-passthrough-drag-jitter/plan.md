@@ -14,36 +14,108 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 已知（上一輪量測，見 `.kn-project/archive/2611172115-ios-passthrough-verify.md` 的後續討論）：網頁每 16ms 送一個 `pan`、Dart 每 16ms 呼叫一次 `moveCamera`（每次 0–5ms）、主執行緒閒置，但螢幕上的地圖是停約 265ms 再一次跳 40–64 像素；用網頁合成事件驅動則是即時更新。**根因未確定。**
 
 ## Architecture
-目前穿透的手勢路徑：手指 → 上層透明 WebView → 網頁手勢辨識（`gestures.ts`）→ `pan` 訊息經 WebSocket → Dart（`AqutterNative.onMessage`）→ plugin 的 `moveCamera(scrollBy)` → 原生 `GMSMapView`。
-候選修法（Phase 1 實驗後才決定）：穿透時讓觸控直接交給原生地圖，WebView 在地圖區域不攔截觸控（網頁回報要攔截的區域），繞過上述轉送。
+**已確認的事實**（iPad 實機）：現行穿透手勢路徑「手指 → 上層透明 WebView → 網頁手勢辨識 → `pan` 經 WebSocket → Dart → plugin `moveCamera` → `GMSMapView`」會抖；手指直接拖原生地圖不抖。
+
+**目標行為**：iOS 穿透時，觸控**落在原生元素區域、且該點網頁沒有要接管的內容**，就直接交給原生地圖；落在網頁內容（按鈕、面板等疊在地圖上的 HTML）則照舊交給 WebView。決定以**觸控起點**為準（一個觸控序列從頭到尾歸同一邊）。
+
+**為何需要兩層配合**（見 Key Decisions「設計分析」）：Flutter 手勢競技場（Dart 層）與 UIKit hit test（原生層）是兩件事，兩邊都要讓路，地圖才會收到手指：
+1. **Dart 層**：`AqutterWebView` 的 platform view 在「原生觸控區域」內對 Flutter hit test 透明（自訂 `RenderProxyBox` 的 `hitTest`），地圖的 platform view 帶 `EagerGestureRecognizer` 贏得競技場。
+2. **UIKit 層**：core 在 iOS 加一個透明的**觸控路由 view**（`NativeTouchRouter`，加在 Flutter 的根 view 最上層）。它的 `hitTest` 只在「原生觸控區域」內回傳底下的地圖 view（暫時關掉 WebView 的互動後以 root view 的 hit test 取得），其他點一律回 `nil`，讓觸控照原本路徑走。
+
+**區域從哪來**：網頁端（`aqutter-js`）對每個穿透元素，在元素矩形內以 `document.elementFromPoint` 取樣：命中元素本身（或其 shadow 內部）的點屬於「原生」，其餘屬於「網頁」。把**網頁區域**以矩形清單隨 `layout` 訊息回報；原生區域 = 元素矩形 − 網頁區域。因此 DOM 的語意（`pointer-events`、堆疊順序、不透明覆蓋）自動成立，不必在元素上逐一標記。
+- 不變：Android 與 mirror 模式完全不受影響（Android 不做路由，欄位被忽略）。
+- 前置：新 core 配舊 client（沒有 `webRegions`）＝ 維持現行行為（全部走網頁）；新 client 配舊 core ＝ 多出的欄位被忽略。
+
+**分階段**：先在 core 單獨做 spike 驗證「兩層路由」在 iPad 可行（用固定測試區域，不動契約），過關才實作契約與三個 repo；不過關就停下、歸檔結果，不硬做。
 - 實作遵守 `kn-project-code-style`。
 
 ## Cross-Repo Scope
-- **本計畫所屬 repo**: `aqutter_core`
+- **本計畫所屬 repo**: `aqutter_core`（契約正本 repo）
 - **共用計畫 ID**: `2611172358-ios-passthrough-drag-jitter`　**共用分支名**: `feature/2611172358-ios-passthrough-drag-jitter`
 - **參與 repo 與職責**:
-  - `aqutter_core` — Phase 1 實驗；若採「原生直接接觸控」，iOS 的 WebView 觸控穿透　issue: `Aqutter/aqutter_core#35`
-  - `aqutter-js`、`aqutter-plugins` — **目前不改**。Phase 1 實驗若證實方向，需要它們配合（回報攔截區域、打開地圖原生手勢）時，回到本計畫補 `## Cross-Repo Scope`、契約與各 repo 的 issue，並**重新核准**（Rule 2／19／28），不會直接動手。
-- **執行順序相依**: 無（Phase 1 只在 `aqutter_core` 本機實驗，不改任何 repo 的程式碼）。
-- **跨 repo 檔案指涉**: 實驗要讀的他 repo 檔案：`aqutter-plugins` 的 `packages/google-maps/lib/src/google_maps_plugin.dart:187-199`（`AqutterNative` 建立）、`:235-262`（`_onMessage`／`_applyPending`）；`aqutter-js` 的 `src/nativeview/element.ts:283-330`（指標事件）、`src/nativeview/gestures.ts:195-203`（`pan`）。
-- **合併後的連動**: 視最終改動而定。
+  - `aqutter_core` — 解析 `webRegions`、計算原生觸控區域、Dart 層 hit test 閘、iOS `NativeTouchRouter`、對 plugin 暴露「原生觸控是否啟用」；spike 也在此　issue: `Aqutter/aqutter_core#35`
+  - `aqutter-js` — 取樣並回報 `webRegions`（`layout` 訊息新增欄位）　issue: 待建立（核准後）
+  - `aqutter-plugins`（`packages/google-maps`）— 原生觸控啟用時 `GoogleMap` 帶 `EagerGestureRecognizer`　issue: 待建立（核准後）
+  - `aqutter`（殼）— **不改**（WebView 的 Dart 閘放在 core 的 `AqutterWebView` 內，殼不必動）；合併後只需同步 manifest（見 Manual Follow-ups）
+- **執行順序相依**: spike（core）→ core（契約提供方，先合）→ js、plugins（消費方，可平行，各自依賴 core 的契約但不依賴其程式碼）→ 端到端驗證。
+- **跨 repo 檔案指涉**: 無需要讀取他 repo 的檔案才能實作本 repo 的部分（契約已寫死）；端到端驗證用 `aqutter-nuxt-app` 的 `app/pages/map-effects.vue`（只讀、本機覆寫）。
+- **合併後的連動**: `aqutter` 的 manifest 同步 core／js／plugins 的新 ref、`aqutter-cli` snapshot、`aqutter-nuxt-app` 鎖定檔前進；文件「穿透的觸控」說明更新。
 
 ## Contract / 介面契約
-無（Phase 1 不改任何跨端協定）。Phase 1 後若需要新增訊息（例如「攔截區域」），會在重新核准時補上完整契約。
+- **契約正本 repo**: `aqutter_core`　**修訂號**: `rev 1`　**狀態**: `草擬`
+
+### 1. 端點
+本契約沒有 HTTP 端點。介面是既有的「網頁 → 原生」穿透訊息 `layout`（WebSocket JSON，`aqutter-js` 送、`aqutter_core` 收）新增一個欄位，加上 core 對 plugin 暴露一個旗標。
+
+| # | 介面 | 方向 | 用途 |
+|---|---|---|---|
+| 1 | `layout` 訊息新增欄位 `webRegions` | `aqutter-js` → `aqutter_core` | 回報元素矩形內「網頁要接管觸控」的區域 |
+| 2 | `AqutterNativeContext.nativeTouch`（`ValueListenable<bool>`） | `aqutter_core` → plugin | 告訴 plugin 目前觸控是否直接進原生（plugin 據此打開原生手勢競技場宣告） |
+
+### 2. 欄位
+**#1 `layout`（既有欄位不變，僅新增）**
+| 欄位 | 型別 | 必填 | 可空 | 預設值 | 單位／格式 | 限制 | 資料來源 | 序列化 |
+|---|---|---|---|---|---|---|---|---|
+| `type` `left` `top` `width` `height` `visible` `sentAt` | 既有 | 是 | 否 | — | 既有 | 既有 | 元素 `getBoundingClientRect()` | 既有 |
+| `webRegions` | `Array<{x:number,y:number,width:number,height:number}>` | 否 | 否（不支援原生觸控的 client 整個省略） | 省略 | CSS 像素，**相對元素左上角**（x、y 可為 0；不得超出 `0..width`／`0..height`） | 至多 64 個矩形、互不要求不重疊；寬高皆 > 0 的有限數；超過 64 個時 client 先合併相鄰格再送 | `document.elementFromPoint` 取樣：命中元素本身或其 shadow 內部＝原生，其餘＝網頁 | 支援原生觸控時**一律輸出**（沒有網頁區域時為 `[]`，不得省略）；與上一則相同的內容不重送（沿用 layout 的去重） |
+
+**#2 `nativeTouch`**
+| 項目 | 規則 |
+|---|---|
+| 值 | `true` 僅當：平台為 iOS、該 session 為穿透、最近一則 `layout` 帶有 `webRegions`（含 `[]`）、且元素可見。其餘（含 Android、mirror、收到不帶 `webRegions` 的 `layout`、元素不可見）為 `false`。 |
+| 預設 | `false` |
+| 時機 | 變化時通知；plugin 只據此切換手勢宣告，不自行猜測。 |
+
+### 3. 錯誤碼
+無。`webRegions` 格式不合（非陣列、元素缺欄位、負或非有限數、超過 64 個）時，core **忽略整個 `webRegions`**（視為未提供，維持現行行為），不影響 `left/top/width/height/visible` 的解析，不中斷連線。
+
+### 4. 狀態與規則
+- 原生觸控區域 = 元素矩形 − `webRegions` 聯集；落點在區域內才走原生，邊界上（區域外緣）屬於網頁（保守，避免吃掉按鈕邊緣）。
+- 決定以**觸控起點**為準，序列中途不重新決定。
+- `webRegions` 與元素移動／捲動同步：`layout` 每次送出都帶最新的區域（相對元素，所以元素單純平移時區域不變、不必重算）。
+- 取樣時機：與 `layout` 同一個排程（動畫畫面、`ResizeObserver`、捲動、視窗改變）外，加上元素或其祖先子樹的 DOM／class／style 變動；取樣是相對昂貴的操作，**同一畫面最多一次**，且最多每 100ms 一次（trailing）。
+- 取樣解析度：以 **8 CSS px** 為格，格中心取樣，相鄰同類格合併成矩形。
+- 網頁覆蓋層一律視為「網頁」，包含沒有 `pointer-events: none` 的裝飾層（與目前行為一致：它們本來就會吃掉事件）。**已知限制**：Flutter 端疊在原生區域之上的 plugin 覆蓋層（非 HTML）在原生觸控區域內不會收到觸控。
+- 冪等：`webRegions` 是完整快照，不是增量；後到的覆蓋先到的。
+
+### 5. 相容性
+- 舊 client（不送 `webRegions`）＋新 core：行為與現在完全相同（`nativeTouch` 恆為 `false`）。
+- 新 client＋舊 core：舊 core 忽略未知欄位，行為與現在相同。
+- Android、macOS、Windows、mirror 模式：不得有任何行為改變（Android 即使收到 `webRegions` 也不啟用）。
+- 公開 API 只新增，不改既有簽名；`AqutterNativeLayout` 新增的 `webRegions` 欄位納入 `==`／`hashCode`。
+
+### 6. 變更紀錄
+- _(尚無)_
 
 ## Impact Files
-- `ios/aqutter_core/Sources/aqutter_core/AqutterWebView/AqutterWebView.swift:12` (`AqutterWebView`) — 條件式：若採「WebView 在地圖區域不攔截觸控」，需覆寫 hit test；Phase 1 結果出來前不動，屆時回計畫補列並重新核准。
-- `lib/src/nativeview/native_session.dart:55`（`passthrough`）、`lib/src/nativeview/native_host_io.dart:433`（協商）— 條件式：若需要把攔截區域或手勢模式傳到原生端。
-- `.kn-project/archive/2611172358-ios-passthrough-drag-jitter.md` (new) — Phase 5 歸檔。
-- Phase 1 的實驗只用暫時改動（驗證用環境，結束後還原，不進 commit）。
+（本 repo 自己的檔案；路徑相對 `aqutter_core` 根目錄。**spike 通過前，以下為預計，spike 若改變做法需回計畫更新。**）
+- `lib/src/nativeview/native_mode.dart:140`（`AqutterNativeLayout`、`tryParse`）— 新增 `webRegions` 解析與驗證、納入 `==`／`hashCode`
+- `lib/src/nativeview/native_session.dart:55`（`passthrough`）、`:161`（`updateLayout`）— 保存區域、計算 `nativeTouch`
+- `lib/src/nativeview/native_host_io.dart:401`（layout 解析處）— 傳遞 `webRegions`；彙整各 session 的原生觸控區域
+- `lib/src/nativeview/native_widget.dart:573`（`_buildPassthrough`）— 暴露 `nativeTouch` 給 plugin（`AqutterNativeContext`）
+- `lib/src/webview/webview.dart:20`（`AqutterWebView`）— Dart 層 hit test 閘（區域內對 Flutter 透明）
+- `ios/aqutter_core/Sources/aqutter_core/AqutterCorePlugin.swift`、`ios/aqutter_core/Sources/aqutter_core/NativeView/`（目錄）— iOS `NativeTouchRouter`（透明路由 view）與註冊；區域經 method channel 由 Dart 推下來
+- `lib/src/nativeview/native_touch_gate.dart` (new) — hit test 閘的 RenderObject（獨立檔，避免 `webview.dart` 再變大）
+- `test/nativeview_passthrough_test.dart` — `webRegions` 解析、`nativeTouch` 條件、舊 client 相容
+- `doc/nativeview.md` — 「穿透的觸控」章節（行為、限制、驗證範圍）
+- `.kn-project/archive/2611172358-ios-passthrough-drag-jitter.md` (new) — Phase 5 歸檔
+- 其他 repo 的檔案不在此列，屬 `aqutter-js`、`aqutter-plugins` 各自的計畫。
 
 ## App-Flow Screens
 （本 repo 無 `.kn-project/app-flow.json`，不適用。）
 
 ## Open Questions / 待確認事項
-### Q1. Phase 1 實驗證實「原生直接接觸控」平順後，是否在本計畫內繼續實作？ — 影響範圍：aqutter-js、aqutter-plugins、aqutter_core
-- [ ] 選項 A：回到本計畫補跨 repo 範圍與契約，重新核准後實作　(建議，理由：它會改三個 repo 的協定)
-- [ ] 選項 B：本計畫到實驗結果為止，實作另開計畫
+### Q1. 實驗證實後，是否在本計畫內繼續實作？ — ✅ 已確認
+- **決議**：使用者回覆「本計畫實作」（2026-11-18）：在本計畫實作，補跨 repo 範圍與契約並重新核准。
+
+### Q2. spike（core 單獨驗證兩層路由）在 iPad 上不過關時怎麼辦？ — 影響範圍：整個計畫
+- [ ] 選項 A：停下，把結果歸檔、開 PR（只含文件），修法另議　(建議，理由：不為了完成而硬做一個可能不能用的觸控層；iOS 觸控路由改壞會影響所有 iOS 穿透)
+- [ ] 選項 B：改試其他做法再回來請示
+- **決議**：_(待使用者勾選)_　狀態：⏳ 待確認
+
+### Q3. 網頁覆蓋層（沒有 `pointer-events: none` 的裝飾層）算網頁區域是否可接受？ — 影響範圍：aqutter-js 的取樣語意
+- [ ] 選項 A：是，照 DOM 語意（建議，理由：與現在行為一致，不需要在元素上額外標記）
+- [ ] 選項 B：加一個屬性（例如 `data-aqutter-native-through`）讓某個覆蓋層明確「穿過去給原生」
 - **決議**：_(待使用者勾選)_　狀態：⏳ 待確認
 
 ## Manual Follow-ups / 人工收尾事項
@@ -69,6 +141,7 @@ iOS 穿透模式（#34）下，手指拖曳地圖時整張地圖會抖動（模�
 - **[候選修法，皆未驗證]** (a) 區域切換：回報互動區域，依觸控落點動態切換 WebView 平台 view 的 `isUserInteractionEnabled`／隱藏（難點：touchesBegan 前就要決定，且會有 Flutter 與 UIKit 兩層狀態）；(b) 穿透時整頁地圖手勢走原生、HTML 按鈕改成「只在不被地圖覆蓋的區域可點」（行為變更，與 map-effects 頁疊在地圖上的按鈕衝突）；(c) 不改觸控路由，改查轉送路徑本身為何在真實觸控下出現停頓（目前未定位）。
 - **[2026-11-18 iPad 實機重測：最新版仍會抖]** 以各 repo 最新 main（core 含 #37／#39、js 含 #19、plugin 含 #11，未做任何覆寫或補丁）裝到 iPad，在 map-effects 頁以 `auto`（穿透）拖曳地圖，使用者回報**仍然會抖**。結論：問題在實機與最新版都存在，不是舊版或模擬器合成 swipe 的假象；模擬器合成 swipe 不能當判準，後續驗證以實機為準。簽署團隊的暫時改動已還原，dev server 已停。
 - **[2026-11-18 iPad 實機驗證：原生直接接觸控不抖]** 在 iPad 上套暫時補丁（殼把 WebView 包進 `IgnorePointer`、plugin 的 `GoogleMap` 帶 `EagerGestureRecognizer`、core 把 `AqutterWebView` 設 `isHidden`，本地覆寫已確認生效），手指直接拖曳原生地圖，使用者回報**不抖**。與前一條「最新版仍會抖」對照：**抖動來自現行「網頁轉送手勢 → Dart → moveCamera」路徑，原生直接接觸控在實機上平順，修法方向（讓觸控走原生）成立**。尚未解決的是如何在保留 HTML 按鈕可點的前提下做區域切換（見設計分析）。補丁、簽署團隊與覆寫已全數還原。
+- **[2026-11-18 設計與契約草擬]** Q1 使用者回覆「本計畫實作」。補了 `## Architecture`、`## Cross-Repo Scope`、`## Contract`（rev 1，草擬）、`## Impact Files`，並新增 Q2、Q3。設計重點：以觸控起點決定走原生或網頁；Dart 層 hit test 閘＋UIKit 層路由 view 兩層配合；網頁區域由 `aqutter-js` 以 `elementFromPoint` 取樣回報；殼不動；先做 core 單獨 spike，過關才實作契約。**依 Rule 2／19／28，需使用者核准後才動程式碼；核准時 Q2、Q3 一併拍板。**
 - **[暫時改動已全部還原]** nuxt-app、`aqutter` 殼、plugin 的 `node_modules` 副本、core 皆乾淨。
 - **[程式碼風格]** 遵守 `kn-project-code-style`。
 
