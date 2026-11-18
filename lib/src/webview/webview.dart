@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:aqutter_core/src/platform_interface/flutter_webview_platform_interface.dart';
 
 import '../find_interaction/find_interaction_controller.dart';
+import '../nativeview/native_touch_gate.dart';
 import '../pull_to_refresh/main.dart';
 import '../pull_to_refresh/pull_to_refresh_controller.dart';
 import '../webview_environment/webview_environment.dart';
@@ -920,7 +921,7 @@ class _AqutterWebViewState extends State<AqutterWebView> {
   @override
   Widget build(BuildContext context) {
     _platforms.add(widget.platform);
-    return widget.platform.build(context);
+    return NativeTouchGate(child: widget.platform.build(context));
   }
 
   @override

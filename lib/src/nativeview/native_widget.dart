@@ -12,6 +12,7 @@ import 'native_host_io.dart' if (dart.library.js_interop) 'native_host_stub.dart
 import 'native_mode.dart';
 import 'native_pointer.dart';
 import 'native_session.dart';
+import 'native_touch_gate.dart';
 import 'native_capture.dart';
 
 /// 把 [child] 鏡像到網頁的 `<aqutter-native session="[sessionId]">`。
@@ -532,7 +533,7 @@ class _AqutterNativeState extends State<AqutterNative> {
         session.hasClientsListenable,
         passthroughSessions,
       ]),
-      child: boundary,
+      child: AqutterNativeTouch(notifier: session.nativeTouchListenable, child: boundary),
       builder: (context, child) {
         if (session.passthrough) {
           return _buildPassthrough(session.layoutListenable.value, child!);
