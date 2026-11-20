@@ -105,7 +105,7 @@ AqutterNativeHost.instance.registerChannel('bench.echo', (connection) {
 | 標籤 | 顯示 canvas | 透明，只佔版面（shadow DOM 不建立 canvas） |
 | 手勢、指令、`pointer` | 相對元素 0..1 的訊息 | **相同** |
 | 頁面條件 | 無 | 元素後方的祖先不可有不透明背景 |
-| 平台 | 全部 | Android（實機驗證）、iOS（iPhone 17 Pro 模擬器驗證，實機未驗證）與 Windows（debug，顯示縮放 125%）；macOS、Linux、Web 退回鏡像 |
+| 平台 | 全部 | Android（實機驗證）、iOS（iPhone 17 Pro 模擬器驗證，實機未驗證）、macOS（debug，一台 Mac）與 Windows（debug，顯示縮放 125%）；Linux、Web 退回鏡像 |
 
 ### Dart 端
 
@@ -196,6 +196,18 @@ Windows 11（debug 建置，顯示縮放 125%），以 aqutter 殼＋aqutter-js�
 - **release 建置與效能**：debug 下沒有量過穿透的繪製成本。
 - **google-maps**：Windows 上它走網頁端的 JS 版地圖（沒有原生地圖可穿透），所以穿透在 Windows 只對 Flutter 自己畫的原生內容有意義。
 - Windows 的 WebView 以貼圖交給 Flutter 合成；穿透依賴貼圖保留 alpha，換 WebView2 執行階段版本或貼圖橋接方式後要重驗。
+
+### macOS 的驗證範圍與注意事項
+
+macOS 27.0.1（debug 建置，一台 Mac），以 aqutter 殼＋aqutter-js＋mirror-demo plugin 的真實整合驗證：`auto` 協商成穿透；WebView 變透明後，與元素同位置同大小的洞裡看得到底下 Flutter 畫的格線與圓球；穿透時疊在上面的 HTML 照常顯示，點擊、拖曳與雙擊手勢照常轉給原生內容；離開穿透頁後背景還原成不透明。
+
+macOS 的 WebView 透明要兩件事：`underPageBackgroundColor = .clear`，以及關掉 WKWebView 自己畫的底色（`drawsBackground`）。後者不是公開 API，`AqutterWebView.swift` 用 KVC 設定，先確認 WebKit 有對應的 setter 才設。殼在執行期切換透明（進出穿透頁），所以 `setSettings` 也處理 `transparentBackground`；只有建立時處理的話，穿透時 WebView 仍會畫白底。
+
+沒有驗證，需要時請自行確認：
+
+- **release 建置與效能**、Intel Mac、其他 macOS 版本、多螢幕與不同顯示縮放。
+- **google-maps**：macOS 上它走網頁端的 JS 版地圖（需要 `googleMaps.configure({ jsApiKey })`，範例專案沒有提供），沒有原生地圖可穿透，所以穿透在 macOS 只對 Flutter 自己畫的原生內容有意義。
+- **觸控路徑**：沒有做 iOS 那樣的 `NativeTouchRouter`；macOS 上拖曳與點擊正常，沒有出現 iOS 的抖動。
 
 ### Android 的 WebView 透明
 

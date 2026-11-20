@@ -31,7 +31,7 @@ enum AqutterNativeMode {
 
 /// 請求穿透卻退回鏡像的原因（線上格式為 [wire]）。
 enum AqutterNativeModeReason {
-  /// 平台沒有穿透實作（目前支援 Android 與 iOS；macOS、Windows、Linux、Web 沒有）。
+  /// 平台沒有穿透實作（目前支援 Android、iOS、macOS 與 Windows；Linux、Web 沒有）。
   unsupportedPlatform('unsupported-platform'),
 
   /// [AqutterNative.mode] 為 [AqutterNativeMode.mirror]。
@@ -82,14 +82,14 @@ class AqutterNativeModeDecision {
 
 /// 這個平台有沒有穿透模式的實作。
 ///
-/// Android（實機驗證過）、iOS（模擬器驗證過，實機待驗）與 Windows（debug、顯示縮放 125% 驗證過）；
-/// macOS、Linux 與 Web 沒有實作。傳入 [platform] 方便測試。
+/// Android（實機驗證過）、iOS（模擬器驗證過，實機待驗）、macOS 與 Windows（debug、顯示縮放 125% 驗證過）；
+/// Linux 與 Web 沒有實作。傳入 [platform] 方便測試。
 bool aqutterNativePassthroughSupported([TargetPlatform? platform]) {
   if (kIsWeb) {
     return false;
   }
   return switch (platform ?? defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.windows => true,
+    TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.macOS || TargetPlatform.windows => true,
     _ => false,
   };
 }
