@@ -23,6 +23,8 @@ public class AqutterWebView: WKWebView, WKUIDelegate,
     var aqutterBrowserDelegate: AqutterBrowserDelegate?
     var channelDelegate: WebViewChannelDelegate?
     var settings: AqutterWebViewSettings?
+    /// 變透明前的 `underPageBackgroundColor`，還原不透明時用。
+    private var opaqueUnderPageBackgroundColor: NSColor?
     var findInteractionController: FindInteractionController?
     var webMessageChannels: [String:WebMessageChannel] = [:]
     var webMessageListeners: [WebMessageListener] = []
@@ -136,8 +138,8 @@ public class AqutterWebView: WKWebView, WKUIDelegate,
                 javaScriptBridgeEnabled = false
             }
             
-            if #available(macOS 12.0, *), settings.transparentBackground {
-                underPageBackgroundColor = .clear
+            if settings.transparentBackground {
+                applyTransparentBackground(true)
             }
         
             allowsBackForwardNavigationGestures = settings.allowsBackForwardNavigationGestures
@@ -556,6 +558,27 @@ public class AqutterWebView: WKWebView, WKUIDelegate,
         loadUrl(urlRequest: urlRequest, allowingReadAccessTo: nil)
     }
     
+    /// 讓 WebView 背景透明（穿透模式需要），或還原。
+    ///
+    /// 只設 `underPageBackgroundColor` 不夠：macOS 的 WKWebView 還會自己畫一層底色，要關掉 `drawsBackground`。
+    /// 這個屬性不是公開 API，用 KVC 設定，先確認 WebKit 有對應的 setter 才設，避免找不到 key 時崩潰。
+    func applyTransparentBackground(_ transparent: Bool) {
+        if #available(macOS 12.0, *) {
+            if transparent {
+                if opaqueUnderPageBackgroundColor == nil {
+                    opaqueUnderPageBackgroundColor = underPageBackgroundColor
+                }
+                underPageBackgroundColor = .clear
+            } else if let color = opaqueUnderPageBackgroundColor {
+                underPageBackgroundColor = color
+                opaqueUnderPageBackgroundColor = nil
+            }
+        }
+        if responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            setValue(!transparent, forKey: "drawsBackground")
+        }
+    }
+
     func setSettings(newSettings: AqutterWebViewSettings, newSettingsMap: [String: Any]) {
         
         if newSettingsMap["alpha"] != nil, settings?.alpha != newSettings.alpha, let viewAlpha = newSettings.alpha {
@@ -767,6 +790,10 @@ public class AqutterWebView: WKWebView, WKUIDelegate,
             }
         }
         
+        if newSettingsMap["transparentBackground"] != nil && settings?.transparentBackground != newSettings.transparentBackground {
+            applyTransparentBackground(newSettings.transparentBackground)
+        }
+
         if #available(macOS 12.0, *) {
             if newSettingsMap["underPageBackgroundColor"] != nil, settings?.underPageBackgroundColor != newSettings.underPageBackgroundColor,
                let underPageBackgroundColor = newSettings.underPageBackgroundColor, !underPageBackgroundColor.isEmpty {

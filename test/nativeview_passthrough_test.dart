@@ -142,11 +142,11 @@ void main() {
   });
 
   group('platform support', () {
-    test('Android, iOS and Windows are supported for now', () {
-      for (final platform in [TargetPlatform.android, TargetPlatform.iOS, TargetPlatform.windows]) {
+    test('Android, iOS, macOS and Windows are supported for now', () {
+      for (final platform in [TargetPlatform.android, TargetPlatform.iOS, TargetPlatform.macOS, TargetPlatform.windows]) {
         expect(aqutterNativePassthroughSupported(platform), isTrue, reason: '$platform');
       }
-      for (final platform in [TargetPlatform.macOS, TargetPlatform.linux, TargetPlatform.fuchsia]) {
+      for (final platform in [TargetPlatform.linux, TargetPlatform.fuchsia]) {
         expect(aqutterNativePassthroughSupported(platform), isFalse, reason: '$platform');
       }
     });
@@ -261,7 +261,7 @@ void main() {
       addTearDown(client.close);
       expect(await client.negotiate('passthrough'), {'type': 'mode', 'mode': 'mirror', 'reason': 'unsupported-widget'});
 
-      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       final desktop = _session('desktop');
       host.register(desktop);
       final desktopClient = await _Client.connect(endpoint, 'desktop');
